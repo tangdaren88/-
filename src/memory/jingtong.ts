@@ -13,7 +13,7 @@
  */
 
 import type { STMessage } from '@/st/context';
-import type { JingtongProfile, QuestionnaireNpc } from './types';
+import type { JingtongFaction, JingtongProfile, QuestionnaireNpc } from './types';
 
 /** 与 apply.ts 的 norm 同口径(名字匹配键:去首尾空白 + 小写) */
 export function normName(s: string): string {
@@ -29,6 +29,8 @@ export interface JingtongScan {
   questionnaireNpcs: QuestionnaireNpc[];
   /** 问卷回执里的主角客观信息(仅兜底填空,不覆盖已有记录) */
   questionnaireProtagonist: { gender?: string; age?: string; appearance?: string };
+  /** 世界观总览「权力与势力」段捕捉的势力种子(取最后一次总览;手动可增删改,墓碑防复活) */
+  factions: JingtongFaction[];
 }
 
 function floorText(m: STMessage | undefined): string {
@@ -63,6 +65,77 @@ function extractWorldOverview(text: string): string {
   const fenced = text.match(/┌[^\n]*镜瞳[·・]世界观总览[^\n]*\n([\s\S]*?)(?=\r?\n[^\S\n]*└|\r?\n\s*┌|<\/game>|<jt_status>|$)/);
   if (fenced?.[1]?.trim()) return fenced[1].trim();
   return '';
+}
+
+/* ============ ①b 世界观总览·「权力与势力」段 → 势力种子 ============ */
+
+/** 常见权力动词:条目里动词前的短语视为势力名,动词起视为权力描述(可在 UI 里改) */
+const FACTION_POWER_VERB = /(掌管|把控|统治|控制|掌握|主导|把持|垄断|操纵|掌控|领导|支配|管理)/;
+
+/**
+ * 从世界观总览里截出「权力与势力」段的正文:
+ * 标题行(带 ③/数字 编号或以关键词开头)的余文 + 后续行,直到下一个编号标题/【块标题为止。
+ * 只认行首编号或关键词开头的行,防把叙事句「各势力暗流涌动」误当标题。
+ */
+function extractFactionSection(overview: string): string {
+  const lines = overview.split(/\r?\n/);
+  const parts: string[] = [];
+  let active = false;
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!active) {
+      const head = t.match(/^(?:[①-⑳]\s*|\d{1,2}[、.．]\s*)?(?:权力与势力|权力格局|势力分布|势力|权力)(?:[：:]\s*(.*))?$/);
+      if (head) {
+        active = true;
+        if (head[1]?.trim()) parts.push(head[1].trim());
+      }
+      continue;
+    }
+    // 段内终止:下一个编号标题 / 【块标题
+    if (/^[①-⑳]/.test(t) || /^\d{1,2}[、.．]/.test(t) || /^【/.test(t)) break;
+    if (t) parts.push(t);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * 势力种子捕捉:权力与势力段按分号/换行拆条,每条用权力动词拆「名 | 权力描述」。
+ * 拆不出动词则试「名：描述」;再拆不出整条为名(desc 空,留给 AI 摘要或手动补)。
+ * 例:「校董会与老钱赞助家族掌管资源分配与招生特权」→ 名「校董会与老钱赞助家族」,
+ * desc「掌管资源分配与招生特权」。
+ */
+export function extractFactions(overview: string): JingtongFaction[] {
+  const section = extractFactionSection(overview);
+  if (!section) return [];
+  const out: JingtongFaction[] = [];
+  const seen = new Set<string>();
+  for (const rawEntry of section.split(/[；;\n]+/)) {
+    const entry = rawEntry.trim().replace(/^[-•·▪◦*]+\s*/, '').replace(/[。．.]$/, '');
+    if (!entry) continue;
+    let name = '';
+    let desc = '';
+    const vm = FACTION_POWER_VERB.exec(entry);
+    if (vm && vm.index > 0) {
+      name = entry.slice(0, vm.index).trim();
+      desc = entry.slice(vm.index).trim();
+    } else {
+      // 动词拆不动(动词缺席或在最前):试「名：描述」/「名——描述」
+      const sm = entry.match(/^(.{1,24}?)[：:——]\s*(.+)$/);
+      if (sm && vm === null) {
+        name = sm[1].trim();
+        desc = sm[2].trim();
+      } else {
+        name = entry;
+      }
+    }
+    name = name.replace(/^[「『"']+|[」』"']+$/g, '').trim();
+    const key = normName(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(desc ? { name, desc } : { name });
+    if (out.length >= 12) break; // 兜底上限:畸形段落不至于灌满名册
+  }
+  return out;
 }
 
 /* ============ ② 镜瞳·深度档案 ============ */
@@ -168,6 +241,7 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
   const profiles = new Map<string, JingtongProfile>();
   let worldOverview = '';
   let questionnaireNpcs: QuestionnaireNpc[] = [];
+  let factions: JingtongFaction[] = [];
   const qp: { gender?: string; age?: string; appearance?: string } = {};
   if (chat) {
     for (let i = 0; i < chat.length; i++) {
@@ -179,7 +253,10 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
       const text = stripThinkBlocks(raw);
       if (!text.includes('镜瞳') && !text.includes('问卷回执')) continue;
       const ov = extractWorldOverview(text);
-      if (ov) worldOverview = ov;
+      if (ov) {
+        worldOverview = ov;
+        factions = extractFactions(ov); // 势力种子跟随最后一次总览(与 worldOverview 同源)
+      }
       extractProfiles(text, i, profiles);
       if (QS_HEADER.test(text)) {
         const f = parseQuestionnaireFields(text);
@@ -192,5 +269,5 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
       }
     }
   }
-  return { worldOverview, profiles: [...profiles.values()], questionnaireNpcs, questionnaireProtagonist: qp };
+  return { worldOverview, profiles: [...profiles.values()], questionnaireNpcs, questionnaireProtagonist: qp, factions };
 }

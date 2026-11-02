@@ -26,7 +26,7 @@ import resummary2Raw from './prompts/resummary2.txt?raw';
 import tasksRaw from './prompts/tasks.txt?raw';
 import builtinProtocolsRaw from './prompts/builtin-protocols.txt?raw';
 import dataWrappersRaw from './prompts/data-wrappers.txt?raw';
-import type { ItemLogEntry, JsonValue, MemKnowledge, MemLifeDetail, MemPlan, MemProtagonist, PlanOutcome, SceneFocus } from './types';
+import type { ItemLogEntry, JsonValue, MemFaction, MemKnowledge, MemLifeDetail, MemPlan, MemProtagonist, PlanOutcome, SceneFocus } from './types';
 
 /** 按「===== NAME =====」分节解析协议文件(08)。 */
 function protocolSections(raw: string): Record<string, string> {
@@ -100,6 +100,7 @@ export const SUMMARY_MACROS: PromptMacro[] = [
   { token: '{{itemlog_block}}', desc: '近期物品变动(已结算的账)' },
   { token: '{{scenes_block}}', desc: '已知地点清单(避免重复记录)' },
   { token: '{{npcs_block}}', desc: '已登场的 NPC 名册(避免重复记录)' },
+  { token: '{{factions_block}}', desc: '已知势力名册(权力格局,避免重复记录)' },
   { token: '{{plans_block}}', desc: '未了结的计划/悬念' },
   { token: '{{resolved_plans_block}}', desc: '近期已了结的计划/悬念(含了结方式/原因,防重复记录)' },
   { token: '{{scenefocus_block}}', desc: '本轮在场/即时场景与未完成动作(按需更新)' },
@@ -153,7 +154,10 @@ export const RULE_PROTAGONIST = sliceSection(SUMMARY_SPLIT.rules, '═══ 【
  * 只对 NPC 好感字段开放估算,不放宽事实摘要/关系/主角档案的证据边界。
  * 截自 summary.txt:档位行写死在文件里,须与 NPC_AFFINITY_FIELDS 一致(npcAffinity 测试兜住)。
  */
-export const RULE_NPC_AFFINITY = sliceSection(SUMMARY_SPLIT.rules, '═══ 【内心好感与外在态度规则】', '═══ 【计划/悬念规则】');
+export const RULE_NPC_AFFINITY = sliceSection(SUMMARY_SPLIT.rules, '═══ 【内心好感与外在态度规则】', '═══ 【势力规则】');
+
+/** 势力规则(factions 字段)。截自 summary.txt,单一来源。 */
+export const RULE_FACTIONS = sliceSection(SUMMARY_SPLIT.rules, '═══ 【势力规则】', '═══ 【计划/悬念规则】');
 
 /** 互动局势卡规则(sceneFocus 字段)。截到宏行为止:其后的生活小档案等规则由各自的兼容协议另补。 */
 export const RULE_SCENE_FOCUS = sliceSection(SUMMARY_SPLIT.rules, '═══ 【互动局势卡规则】', '{{lifedetails_rule}}');
@@ -393,6 +397,8 @@ interface BuildArgs {
   scenes: { path: string[]; desc?: string }[];
   /** 已登场 NPC(供 AI 复用命名、防重复记录、判断状态更新) */
   npcs: NpcSummaryView[];
+  /** 已知势力(权力格局名册,供 AI 复用命名、防重复记录、判断势力演变) */
+  factions: MemFaction[];
   /** 未了结计划(顺序即编号 p1..pn);createdTime/targetTime 为故事内时间(可空) */
   openPlans: { kind: 'plan' | 'suspense'; content: string; createdTime?: string; targetTime?: string }[];
   /** 近期已完成的计划/悬念(已按 resolvedAt 倒序取好最近 N 条);防副模型重复记录。空数组→渲染「(无)」 */
@@ -480,6 +486,42 @@ export function fmtScenes(scenes: BuildArgs['scenes']): string {
  */
 export function fmtNpcs(npcs: BuildArgs['npcs']): string {
   return fmtNpcSummaryList(npcs);
+}
+
+/**
+ * 已知势力名册(树状,子势力缩进;与场景树同款规则):
+ * 每条显示 势力名 + 权柄描述 + 已知成员 + 与主角的当前关系。
+ * parent 存名字,父不存在(悬空)视作顶级;同级按加入顺序,父先于子。
+ * 空则「(无)」。
+ */
+export function fmtFactions(factions: BuildArgs['factions'], user = '主角'): string {
+  if (!factions?.length) return '  (无)';
+  const key = (s: string): string => s.trim().toLowerCase();
+  const names = new Set(factions.map(f => key(f.name)));
+  const childrenOf = new Map<string, MemFaction[]>();
+  const tops: MemFaction[] = [];
+  for (const f of factions) {
+    const p = (f.parent ?? '').trim();
+    // 悬空父(已被删/改名)视作顶级,数据不动
+    if (p && names.has(key(p))) {
+      const arr = childrenOf.get(key(p));
+      if (arr) arr.push(f);
+      else childrenOf.set(key(p), [f]);
+    } else {
+      tops.push(f);
+    }
+  }
+  const lines: string[] = [];
+  const pushOne = (f: MemFaction, depth: number): void => {
+    const indent = '  '.repeat(depth + 1);
+    const desc = oneLine(f.desc) ? ` —— ${oneLine(f.desc)}` : '';
+    const members = f.members?.length ? `｜成员:${f.members.map(oneLine).filter(Boolean).join('、')}` : '';
+    const rel = oneLine(f.userRelation) ? `｜与${user}:${oneLine(f.userRelation)}` : '';
+    lines.push(`${indent}- ${f.name}${desc}${members}${rel}`);
+    for (const c of childrenOf.get(key(f.name)) ?? []) pushOne(c, depth + 1);
+  };
+  for (const t of tops) pushOne(t, 0);
+  return lines.join('\n');
 }
 
 /**
@@ -754,12 +796,15 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     itemlog_block: fmtItemLog(a.itemLog),
     scenes_block: fmtScenes(a.scenes),
     npcs_block: fmtNpcs(a.npcs),
+    factions_block: fmtFactions(a.factions, a.user || '主角'),
     plans_block: fmtPlans(a.openPlans),
     resolved_plans_block: fmtResolvedPlans(a.resolvedPlans),
     scenefocus_block: fmtSceneFocus(a.sceneFocus),
     lifedetails_block: `- 生活小档案(已记录,用编号 d1/d2… 指代;只读参考,勿重复记录 —— 见【生活小档案规则】):\n${fmtLifeDetails(a.lifeDetails, a.user || '主角')}\n`,
     lifedetails_field: LIFE_DETAILS_FIELD_TMPL,
     lifedetails_rule: `\n${RULE_LIFE_DETAILS}\n`,
+    factions_field: FACTIONS_FIELD_TMPL,
+    factions_rule: `\n${RULE_FACTIONS}\n`,
     // 了解清单三处:功能关闭(未传 knowledge)时全为空串,提示词与关闭前一字不差
     knowledge_block: a.knowledge
       ? `- 角色对主角的了解(相关角色已记下的认知,用编号 k1/k2… 指代;只读参考,勿重复记录 —— 见【了解清单规则】):\n${fmtKnowledgeForSummary(a.knowledge)}\n`
@@ -800,6 +845,8 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
   if (!prompt.includes('═══ 【互动局势卡规则】')) supplements.push(SCENE_FOCUS_PROTOCOL_SUPPLEMENT);
   if (!custom.includes('{{lifedetails_rule}}')) supplements.push(LIFE_DETAILS_PROTOCOL_SUPPLEMENT);
   if (a.knowledge && !custom.includes('{{knowledge_rule}}')) supplements.push(KNOWLEDGE_PROTOCOL_SUPPLEMENT);
+  // 势力规则在内置模板里是字面正文(非宏),照内置改的模板自带;旧版自定义模板没有 → 补协议
+  if (!prompt.includes('═══ 【势力规则】')) supplements.push(FACTIONS_PROTOCOL_SUPPLEMENT);
   if (!prompt.includes('═══ 【内心好感与外在态度规则】')) supplements.push(RULE_NPC_AFFINITY);
   // 关系线保留:自定义模板未带入时补上,保证慢热互动不在摘要/压缩里被删空(与内置模板同源)
   if (!prompt.includes('【关系线保留】')) supplements.push(RULE_RELATION_MOMENTUM);
@@ -812,6 +859,7 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     system: fill(supplements.join('\n\n'), macros),
     user: `${prompt}\n\n【主角当前档案(本轮之前,只读参考)】\n${macros.protagonist_block}`
       + (prompt.includes(macros.npcs_block) ? '' : `\n\n【已登场NPC(本轮之前,好感估计只作基线,不重复结算)】\n${macros.npcs_block}`)
+      + (a.factions?.length && !prompt.includes(macros.factions_block) ? `\n\n【已知势力(本轮之前,只读参考)】\n${macros.factions_block}` : '')
       + (prompt.includes(macros.lifedetails_block.trim()) ? '' : `\n\n${macros.lifedetails_block}`)
       + (!a.knowledge || prompt.includes(macros.knowledge_block.trim()) ? '' : `\n\n${macros.knowledge_block}`),
   };
@@ -851,6 +899,23 @@ ${KNOWLEDGE_FIELD_TMPL.replace(/^,\n/, '')}
 }
 
 ${RULE_KNOWLEDGE}`;
+
+/** 势力字段的 JSON 模板片段(带前导逗号,接在 npcs 之后)。 */
+const FACTIONS_FIELD_TMPL = `,
+  "factions": {
+    "add": [{ "name": "势力名(与【已知势力】对照,已有的勿再add)", "parent": "父势力名,子势力才填(可选)", "desc": "该势力的权柄/资源/影响范围一句话(可选)", "members": ["该势力中已登场的关键成员NPC名(可选)"], "userRelation": "主角与该势力的当前关系一句话(可选)" }],
+    "update": [{ "name": "已有势力名", "parent": "新归属(可选)", "desc": "变化后的完整权柄描述(整体覆盖,可选;空字符串=清除)", "members": "变动后的完整成员名单(数组整体覆盖,可选)", "userRelation": "变化后的当前关系(可选;空字符串=清除)" }],
+    "remove": ["解散/覆灭/被吞并而退出舞台的势力名"]
+  }`;
+
+/** 自定义摘要模板不认识势力字段;补字段协议(可选字段,不破坏旧模板)。 */
+const FACTIONS_PROTOCOL_SUPPLEMENT = `【柏宝书势力兼容协议】
+最终 JSON 根对象可增加一个可选字段(没有可记的就不要输出它):
+{
+${FACTIONS_FIELD_TMPL.replace(/^,\n/, '')}
+}
+
+${RULE_FACTIONS}`;
 
 /**
  * 批量摘要的参数。批量只产 summary + 起止时间,故不传物品/计划(避免多楼顺序错乱)——

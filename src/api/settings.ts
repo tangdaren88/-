@@ -183,6 +183,8 @@ export interface InjectionSections {
   worldOverview: boolean;
   /** 镜瞳·深度档案(自用二改):按 deepProfileInterval 间隔注入 NPC 固定基底档案,防人设漂移 */
   deepProfiles: boolean;
+  /** 势力格局(自用二改):权力关系树 + 主角对各势力的立场;随剧情 delta 演变 */
+  factions: boolean;
 }
 
 export interface ApiSettings {
@@ -365,7 +367,7 @@ function defaults(): ApiSettings {
     summaryTagName: 'anusa_summary',
     directSummaryInterval: 3,
     summaryOnlyMode: false,
-    injection: { sceneFocus: true, lifeDetails: true, protagonist: true, npcs: true, npcAffinity: true, items: true, scenes: true, knowledge: true, worldOverview: true, deepProfiles: true },
+    injection: { sceneFocus: true, lifeDetails: true, protagonist: true, npcs: true, npcAffinity: true, items: true, scenes: true, knowledge: true, worldOverview: true, deepProfiles: true, factions: true },
     /** 镜瞳深度档案的注入间隔:每 N 条可追踪 AI 消息注入一次(1=每轮;开头 2 轮内始终注入,拍摄完马上起作用) */
     deepProfileInterval: 5,
     keepRecent: 3,
@@ -449,6 +451,7 @@ function normalize(raw: unknown): ApiSettings {
     knowledge: typeof ri.knowledge === 'boolean' ? ri.knowledge : true,
     worldOverview: typeof ri.worldOverview === 'boolean' ? ri.worldOverview : true,
     deepProfiles: typeof ri.deepProfiles === 'boolean' ? ri.deepProfiles : true,
+    factions: typeof ri.factions === 'boolean' ? ri.factions : true,
   };
   // 镜瞳深度档案注入间隔:1–20 的整数,缺失/非法回退默认 5
   merged.deepProfileInterval =

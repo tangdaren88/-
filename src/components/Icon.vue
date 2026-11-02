@@ -29,6 +29,9 @@ const PATHS: Record<string, string> = {
   // 物品:立方体
   items:
     '<path d="M12 3.5 20 8v8l-8 4.5L4 16V8z"/><path d="M4 8l8 4.5L20 8"/><path d="M12 12.5V20.5"/>',
+  // 势力:旗帜 —— 权力格局/阵营的归属标
+  factions:
+    '<path d="M6 21V3.5"/><path d="M6 4h11.5l-2.8 3.5 2.8 3.5H6z"/><path d="M6 11h4"/>',
   // 设置:滑块
   settings:
     '<path d="M5 8h9M18 8h1"/><path d="M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/>',

@@ -11,7 +11,7 @@ import { scheduleVectorIndex } from './vector';
 import { invalidateRecallCache } from './vector/cache';
 import { applyConditionPatch, hasConditionPatchContent, stripConditionFragmentIds } from './conditionPatch';
 import { createEmptyMemory } from './types';
-import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemLifeDetail, MemNpc, MemPlan, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProtagonistDelta, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
+import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, FactionDelta, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemFaction, MemLifeDetail, MemNpc, MemPlan, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProtagonistDelta, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
 
 // 供既有调用方继续从 apply 取在场类型;定义在 types.ts 与名册展示共用。
 export type { NpcPresence } from './types';
@@ -255,6 +255,30 @@ function cleanNpcList(v: unknown, stored = false): NpcDelta[] {
   return arr(v).map(x => cleanNpcDelta(x, stored)).filter((x): x is NpcDelta => !!x);
 }
 
+/** 清洗单个势力指令。desc/userRelation 用 patchText(空串=明确清除);members 整体覆盖;无名不记 */
+function cleanFactionDelta(raw: unknown): FactionDelta | null {
+  if (!isRecord(raw)) {
+    const name = scalarText(raw);
+    return name ? { name } : null;
+  }
+  const name = namedText(raw, ['name', 'faction', 'id']);
+  if (!name) return null;
+  const members = cleanTextList(raw.members);
+  const out: FactionDelta = {
+    name,
+    parent: patchText(raw.parent),
+    desc: patchText(raw.desc),
+    userRelation: patchText(raw.userRelation),
+  };
+  if (members.length) out.members = members;
+  else if (Array.isArray(raw.members)) out.members = []; // 显式给空数组=清空成员
+  return out;
+}
+
+function cleanFactionList(v: unknown): FactionDelta[] {
+  return arr(v).map(cleanFactionDelta).filter((x): x is FactionDelta => !!x);
+}
+
 /**
  * 清洗局势卡快照,三态语义与 patchText 同族:
  *  - undefined → undefined(未提供=不更新)
@@ -438,6 +462,17 @@ function cleanStoredDelta(raw: StoredDelta): StoredDelta {
     if (Object.keys(npcs).length) out.npcs = npcs;
   }
 
+  if (isRecord(raw.factions)) {
+    const factions: NonNullable<StoredDelta['factions']> = {};
+    const add = cleanFactionList(raw.factions.add);
+    const update = cleanFactionList(raw.factions.update);
+    const remove = cleanTextList(raw.factions.remove, ['name', 'faction', 'id']);
+    if (add.length) factions.add = add;
+    if (update.length) factions.update = update;
+    if (remove.length) factions.remove = remove;
+    if (Object.keys(factions).length) out.factions = factions;
+  }
+
   if (isRecord(raw.plans)) {
     const plans: NonNullable<StoredDelta['plans']> = {};
     const add = cleanPlanAddList(raw.plans.add);
@@ -483,6 +518,10 @@ export function itemId(name: string): string {
 /** NPC id:按规范化名,故重放幂等、手动 op 可稳定引用 */
 export function npcId(name: string): string {
   return `npc:${norm(name)}`;
+}
+/** 势力 id:按规范化名,故重放幂等、手动 op 可稳定引用 */
+export function factionId(name: string): string {
+  return `faction:${norm(name)}`;
 }
 /** 计划 id:产生它的叶子 id + 在该叶子 add 数组里的序号 */
 export function planId(leafId: string, addIndex: number): string {
@@ -1427,6 +1466,51 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
     }
   }
 
+  // 势力(指令型:add 新出现/upsert / update 改权柄成员关系 / remove 解散)。施加序:add → update → remove。
+  // update 对不存在的名字按 upsert 创建,兼容名册为空时摘要误产 update 的历史数据(与 NPC 同款容错)。
+  // 成员是「整体覆盖」:省略=保持;显式数组(含空)=替换。parent 是名字引用,父势力先删后不追改子势力(悬空视为顶级)。
+  if (d.factions) {
+    const applyFaction = (f: MemFaction, src: FactionDelta, created: boolean): void => {
+      if (src.parent !== undefined) f.parent = src.parent.trim();
+      if (typeof src.desc === 'string') f.desc = src.desc.trim() || undefined;
+      if (src.members !== undefined) f.members = src.members.length ? [...src.members] : undefined;
+      if (typeof src.userRelation === 'string') f.userRelation = src.userRelation.trim() || undefined;
+      f.updatedAt = t;
+      if (created) f.createdAt = t;
+    };
+    for (const add of d.factions.add ?? []) {
+      if (!add?.name?.trim()) continue;
+      const id = factionId(add.name);
+      const ex = mem.factions.find(f => f.id === id);
+      if (ex) {
+        // 已存在:add 视作补全(仅填空,不覆盖既有),同 NPC 档案层语义
+        if (add.parent !== undefined && !ex.parent) ex.parent = add.parent.trim();
+        if (add.desc && !ex.desc) ex.desc = add.desc.trim();
+        if (add.members?.length && !ex.members?.length) ex.members = [...add.members];
+        if (add.userRelation && !ex.userRelation) ex.userRelation = add.userRelation.trim();
+        ex.updatedAt = t;
+      } else {
+        const f: MemFaction = { id, name: add.name.trim(), parent: add.parent?.trim() || '', createdAt: t, updatedAt: t };
+        applyFaction(f, add, true);
+        mem.factions.push(f);
+      }
+    }
+    for (const upd of d.factions.update ?? []) {
+      if (!upd?.name?.trim()) continue;
+      let f = mem.factions.find(x => x.id === factionId(upd.name));
+      if (!f) {
+        f = { id: factionId(upd.name), name: upd.name.trim(), parent: '', createdAt: t, updatedAt: t };
+        mem.factions.push(f);
+      }
+      applyFaction(f, upd, false);
+    }
+    for (const name of d.factions.remove ?? []) {
+      if (!name?.trim()) continue;
+      const idx = mem.factions.findIndex(x => x.id === factionId(name));
+      if (idx >= 0) mem.factions.splice(idx, 1);
+    }
+  }
+
   // 计划 / 悬念
   if (d.plans) {
     (d.plans.add ?? []).forEach((add, addIdx) => {
@@ -1539,11 +1623,11 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
 export function deriveMemory(
   chat: STMessage[] | null,
   upToExclusive?: number,
-): Pick<BaibaiMemory, 'state' | 'protagonist' | 'items' | 'plans' | 'scenes' | 'npcs' | 'itemLog' | 'lifeDetails' | 'knowledge' | 'vars'> {
+): Pick<BaibaiMemory, 'state' | 'protagonist' | 'items' | 'plans' | 'scenes' | 'npcs' | 'factions' | 'itemLog' | 'lifeDetails' | 'knowledge' | 'vars'> {
   const mem = createEmptyMemory();
   // 变量从三层合并模板起算(无 chat 也返回初始状态);seed 时展开模板里的 ST 宏({{user}} 等)
   mem.vars = expandVarMacros(mergeTemplates(memory.varTemplates));
-  if (!chat) return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
+  if (!chat) return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
   const end = typeof upToExclusive === 'number' ? Math.min(upToExclusive, chat.length) : chat.length;
   for (let i = 0; i < end; i++) {
     if (chat[i]?.extra?.bbs_omit) continue; // 番外楼:不参与派生重放
@@ -1555,7 +1639,7 @@ export function deriveMemory(
   }
   // 只留最近若干条变动(注入/喂模型够用即可,省 token)
   if (mem.itemLog.length > ITEM_LOG_KEEP) mem.itemLog = mem.itemLog.slice(-ITEM_LOG_KEEP);
-  return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
+  return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
 }
 
 /** 变动日志保留的最近条数(注入与喂摘要共用)。 */
@@ -1738,6 +1822,18 @@ export function finalizeDelta(
     if (update.length) npcs.update = update;
     if (remove.length) npcs.remove = remove;
     if (Object.keys(npcs).length) out.npcs = npcs;
+  }
+
+  if (isRecord(delta.factions)) {
+    // 规范化:add/update 必须有名字才保留(无名势力不记)
+    const factions: NonNullable<StoredDelta['factions']> = {};
+    const add = cleanFactionList(delta.factions.add);
+    const update = cleanFactionList(delta.factions.update);
+    const remove = cleanTextList(delta.factions.remove, ['name', 'faction', 'id']);
+    if (add.length) factions.add = add;
+    if (update.length) factions.update = update;
+    if (remove.length) factions.remove = remove;
+    if (Object.keys(factions).length) out.factions = factions;
   }
 
   if (isRecord(delta.plans)) {
@@ -1939,6 +2035,29 @@ export function appendOpToLatestLeaf(op: StoredDelta): boolean {
     if (dn.add && !dn.add.length) delete dn.add;
     if (dn.update && !dn.update.length) delete dn.update;
     if (dn.remove && !dn.remove.length) delete dn.remove;
+  }
+  if (op.factions) {
+    if (op.factions.add?.length || op.factions.update?.length || op.factions.remove?.length) changed = true;
+    // 与 NPC 同款跨桶互斥:同名势力在 add/update 与 remove 之间不能并存,
+    // 否则改名(remove旧+add新)往返会让 remove 桶残留旧名,重放把刚 add 的删掉。
+    const df = (d.factions ??= {});
+    for (const name of op.factions.remove ?? []) {
+      const id = factionId(name);
+      if (df.add) df.add = df.add.filter(a => factionId(a.name) !== id);
+      if (df.update) df.update = df.update.filter(u => factionId(u.name) !== id);
+      df.remove = [...(df.remove ?? []).filter(n => factionId(n) !== id), name];
+    }
+    for (const a of op.factions.add ?? []) {
+      if (df.remove) df.remove = df.remove.filter(n => factionId(n) !== factionId(a.name)); // 撤销同名待删
+      (df.add ??= []).push(a);
+    }
+    for (const u of op.factions.update ?? []) {
+      if (df.remove) df.remove = df.remove.filter(n => factionId(n) !== factionId(u.name));
+      (df.update ??= []).push(u);
+    }
+    if (df.add && !df.add.length) delete df.add;
+    if (df.update && !df.update.length) delete df.update;
+    if (df.remove && !df.remove.length) delete df.remove;
   }
   if (op.scenes) {
     if (
@@ -2275,6 +2394,76 @@ export function editDeepProfile(from: string, patch: { name?: string; text?: str
 export function removeDeepProfile(name: string): boolean {
   const nm = name.trim();
   return nm ? appendOpToLatestLeaf({ jingtong: { remove: [nm] } }) : false;
+}
+
+/* ============ 势力手动 op(自用二改,与 NPC 同范式) ============ */
+
+/** 手动新增一个势力。无有效叶子返回 false。 */
+export function upsertFaction(fields: {
+  name: string;
+  parent?: string;
+  desc?: string;
+  members?: string[];
+  userRelation?: string;
+}): boolean {
+  const name = fields.name.trim();
+  if (!name) return false;
+  return appendOpToLatestLeaf({
+    factions: {
+      add: [{
+        name,
+        parent: fields.parent?.trim() || '',
+        desc: fields.desc?.trim() || undefined,
+        members: fields.members?.length ? fields.members : undefined,
+        userRelation: fields.userRelation?.trim() || undefined,
+      }],
+    },
+  });
+}
+
+/**
+ * 手动编辑一个势力(派生数据,写回最新叶子的 delta),与 editNpc 同范式:
+ *  - 改名:势力 id 按规范化名确定,改名等于换 id → remove(旧名) + add(新名,带全字段)。
+ *  - 仅改字段:update(按原名匹配,设为新值;desc/userRelation 空串=清除,members 整体覆盖)。
+ * 父势力归属(patch.parent)未显式给时从旧势力继承(改名不丢层级)。
+ */
+export function editFaction(
+  oldName: string,
+  patch: {
+    name?: string;
+    parent?: string;
+    desc?: string;
+    members?: string[];
+    userRelation?: string;
+  },
+): boolean {
+  const newName = patch.name?.trim() || oldName;
+  const prev = memory.factions.find(f => f.id === factionId(oldName));
+  const parent = patch.parent !== undefined ? patch.parent.trim() : (prev?.parent ?? '');
+  const desc = patch.desc !== undefined ? patch.desc.trim() : (prev?.desc ?? '');
+  const members = patch.members !== undefined ? patch.members : (prev?.members ?? []);
+  const userRelation = patch.userRelation !== undefined ? patch.userRelation.trim() : (prev?.userRelation ?? '');
+  const fields = {
+    parent,
+    desc,
+    members: members.filter(m => m.trim()),
+    userRelation,
+  };
+  if (norm(newName) !== norm(oldName)) {
+    return appendOpToLatestLeaf({
+      factions: { remove: [oldName], add: [{ name: newName, ...fields }] },
+    });
+  }
+  return appendOpToLatestLeaf({ factions: { update: [{ name: newName, ...fields }] } });
+}
+
+/**
+ * 手动删除一个势力(解散)。子势力不连带删:悬空者在渲染时视作顶级,
+ * 用户可在编辑弹窗里改指新父级;delta 层面保留完整历史(重演时父级曾存在)。
+ */
+export function removeFaction(name: string): boolean {
+  const nm = name.trim();
+  return nm ? appendOpToLatestLeaf({ factions: { remove: [nm] } }) : false;
 }
 
 /**

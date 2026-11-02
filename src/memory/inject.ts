@@ -14,7 +14,7 @@ import { apiSettings, engineActiveHere } from '@/api/settings';
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
 import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLeaf, itemReachableAtScene, leafValid } from './apply';
-import { fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
+import { fmtFactions, fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtKnowledgeInjection } from './knowledge';
 import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING } from './npcRelations';
@@ -638,6 +638,13 @@ export function buildStateInjectionText(): string {
     if (npcBlock) st.push(`NPC名册:\n${npcBlock}`);
   }
 
+  // 势力格局(自用二改):权力关系树 + 主角对各势力的立场,随剧情 delta 演变。NPC 名册之后、深度档案之前。
+  const factionsOn = inj.factions && memory.factions.length > 0;
+  if (factionsOn) {
+    const factionBlock = fmtFactions(memory.factions, getContext()?.name1?.trim() || '主角');
+    st.push(`[势力格局(权力关系与主角立场,随剧情演变)]\n${factionBlock}`);
+  }
+
   // 镜瞳·深度档案(自用二改):客观固定基底,按间隔注入防人设漂移。
   // 性格与对主角态度是变量 —— 以名册当前状态为准,这里只兜住「不会变的骨相」。
   const profilesOn = inj.deepProfiles && memory.deepProfiles.length > 0 && shouldInjectProfiles(chat);
@@ -685,7 +692,7 @@ export function buildStateInjectionText(): string {
   // 状态块在有任何有意义内容时才注入(物品/计划即使空也会有「(无)」占位,
   // 但只要存在摘要或时间/地点就值得带上整块)
   const hasProtagonist = inj.protagonist && Object.values(memory.protagonist).some(value => !!oneLine(value));
-  const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length) || !!knowledgeBlock || !!memory.worldOverview.trim() || profilesOn;
+  const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || (factionsOn) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length) || !!knowledgeBlock || !!memory.worldOverview.trim() || profilesOn;
   if (!hasState) return '';
   // 首尾私密简报框定,避免主模型把状态快照当成要复述/输出的模板(正文后跟吐一份状态)
   return `${MEMORY_BRIEFING_NOTE}\n[当前状态]\n${st.join('\n')}\n${MEMORY_BRIEFING_END}`;

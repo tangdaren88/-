@@ -1,4 +1,5 @@
 import type { Component } from 'vue';
+import Factions from './factions/index.vue';
 import Items from './items/index.vue';
 import Npcs from './npcs/index.vue';
 import Scenes from './scenes/index.vue';
@@ -25,6 +26,7 @@ export const PAGES: PageDef[] = [
   { id: 'items', label: '物品', component: Items },
   { id: 'scenes', label: '场景', component: Scenes },
   { id: 'npcs', label: '角色', component: Npcs },
+  { id: 'factions', label: '势力', component: Factions },
   { id: 'vars', label: '变量', component: Vars },
   { id: 'settings', label: '设置', component: Settings },
 ];

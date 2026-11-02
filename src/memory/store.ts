@@ -74,6 +74,7 @@ export function recomputeDerived(): void {
   memory.itemLog.splice(0, memory.itemLog.length, ...d.itemLog);
   memory.lifeDetails.splice(0, memory.lifeDetails.length, ...d.lifeDetails);
   memory.knowledge.splice(0, memory.knowledge.length, ...d.knowledge);
+  memory.factions.splice(0, memory.factions.length, ...d.factions);
 
   // 镜瞳捕获(自用二改):世界观总览 + 深度档案 + 问卷关系网,全部从楼层正文派生,不持久化
   const scan = scanJingtong(chat);
@@ -123,6 +124,20 @@ export function recomputeDerived(): void {
     if (!memory.protagonist.gender && qp.gender) memory.protagonist.gender = qp.gender;
     if (!memory.protagonist.age && qp.age) memory.protagonist.age = qp.age;
     if (!memory.protagonist.appearance && qp.appearance) memory.protagonist.appearance = qp.appearance;
+  }
+  if (scan.factions.length) {
+    // 势力种子:首轮世界观总览「权力与势力」段捕捉的势力。重放出的势力已存在则跳过;
+    // 被手动删过(叶子 delta.factions.remove 墓碑)的种子不复活
+    const tombs = new Set<string>();
+    for (const m of chat ?? []) {
+      for (const nm of getLeaf(m)?.delta?.factions?.remove ?? []) tombs.add(normName(nm));
+    }
+    for (const f of scan.factions) {
+      const key = normName(f.name);
+      if (!key || tombs.has(key)) continue;
+      if (memory.factions.some(x => normName(x.name) === key)) continue;
+      memory.factions.push({ id: `faction:${key}`, name: f.name, parent: f.parent ?? '', desc: f.desc, createdAt: Date.now(), updatedAt: Date.now() });
+    }
   }
 
   // vars 是 JSON 对象:清空后按派生结果重填(不换 reactive 引用,保持页面响应式绑定)

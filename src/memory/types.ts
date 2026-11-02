@@ -476,6 +476,41 @@ export interface QuestionnaireNpc {
 }
 
 /**
+ * 世界观总览「权力与势力」段捕捉出的势力种子(派生缓存,不持久化)。
+ * 启发式拆名:权力动词前的短语=势力名,动词起=权力描述;拆不出动词则整条为名。
+ */
+export interface JingtongFaction {
+  name: string;
+  /** 种子捕获的势力均为顶级;保留字段与 MemFaction 对齐(手动在 UI 里改指父势力) */
+  parent?: string;
+  /** 权力描述(动词起的原文) */
+  desc?: string;
+}
+
+/**
+ * 势力(派生产物,不持久化)。自用二改:从世界观总览「权力与势力」段种子捕获 +
+ * 剧情摘要 delta.factions 持续演化(新势力出现/权柄变化/成员变动/与主角关系变化)。
+ * 与场景树同构:扁平数组 + parent(父势力**名字**)表达层级;父势力删除后子势力悬空,
+ * 渲染时悬空者视作顶级(数据不动,父级可随时在 UI 里改指)。
+ * id 确定性:`faction:${规范化名}`,重放幂等、手动 op 可稳定引用;改名=换 id(手动端 remove+add 表达)。
+ */
+export interface MemFaction {
+  id: string;
+  /** 势力名(同时作为匹配键) */
+  name: string;
+  /** 父势力名(原文,匹配键);空串=顶级 */
+  parent: string;
+  /** 描述与权力:该势力的权柄/资源/影响范围 */
+  desc?: string;
+  /** 成员(角色名列表,通常取自 NPC 名册) */
+  members?: string[];
+  /** {{user}} 与该势力的当前关系/处境 */
+  userRelation?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * 了解清单一条:某角色目前知道/以为的一件主角的事(防人设全知:没记的私事默认不知道)。
  * 记的是角色的认知而非真相,把握程度写进句子(认定…/怀疑…/听说…/主角自称…),被骗就照记被骗后的认知。
  */
@@ -518,6 +553,8 @@ export interface BaibaiMemory {
   scenes: MemScene[];
   /** 派生缓存:登场过的 NPC(从叶子 delta 重放) */
   npcs: MemNpc[];
+  /** 派生缓存:势力(从叶子 delta 重放 + 世界观总览种子捕获,见 MemFaction) */
+  factions: MemFaction[];
   /** 派生缓存:近期物品变动日志(重放时产出,只留最近若干条) */
   itemLog: ItemLogEntry[];
   /** 派生缓存:主角及角色生活小档案(从叶子 delta 重放) */
@@ -549,6 +586,7 @@ export function createEmptyMemory(): BaibaiMemory {
     deepProfiles: [],
     scenes: [],
     npcs: [],
+    factions: [],
     itemLog: [],
     varTemplates: { global: { json: {}, meaning: '', rule: '' }, char: { json: {}, meaning: '', rule: '' }, chat: { json: {}, meaning: '', rule: '' } },
     vars: {},
@@ -650,6 +688,19 @@ export interface SceneDelta {
   desc?: string;
 }
 
+/** 势力指令里单个势力的形状(AI / 手动共用)。add/update 都按名字 upsert */
+export interface FactionDelta {
+  name: string;
+  /** 父势力名(子势力归属);空串/省略=顶级 */
+  parent?: string;
+  /** 描述与权力:权柄/资源/影响范围(空字符串=清除) */
+  desc?: string;
+  /** 成员角色名(整体覆盖;省略=保持) */
+  members?: string[];
+  /** {{user}} 与该势力的当前关系/处境(空字符串=清除) */
+  userRelation?: string;
+}
+
 /**
  * 重设父级指令:把已存在的 node(及其整棵子树)平移到 newPath。
  * 覆盖三种情形(都是同一操作):给顶级加父、在已有父子间插入中间节点、改换父级。
@@ -717,6 +768,15 @@ export interface SummaryDelta {
     /** 按名字更新已有 NPC(身份/描述/性格/随行/所在地) */
     update?: NpcDelta[];
     /** 按名字移除(永久退场/死亡) */
+    remove?: string[];
+  };
+  /** 指令型:势力增删改(可选;势力格局随剧情演变:新势力出现/权柄变化/成员变动/与主角关系变化) */
+  factions?: {
+    /** 新出现/新记录的势力 */
+    add?: FactionDelta[];
+    /** 按名字更新已有势力(权力/成员/与主角关系) */
+    update?: FactionDelta[];
+    /** 按名字移除(解散/覆灭/被吞并) */
     remove?: string[];
   };
   /** 指令型:计划/悬念增删 */
@@ -790,6 +850,12 @@ export interface StoredDelta {
     add?: NpcDelta[];
     update?: NpcDelta[];
     /** 按 NPC 名移除(规范化匹配) */
+    remove?: string[];
+  };
+  factions?: {
+    add?: FactionDelta[];
+    update?: FactionDelta[];
+    /** 按势力名移除(规范化匹配;手动删除种子势力的墓碑也走这里) */
     remove?: string[];
   };
   plans?: {
