@@ -76,6 +76,6 @@ https://github.com/baibai-git/ST-BaiBai-Book
 
 ---
 
-作者：柏柏 · 欢迎反馈与建议。
+原作者：柏柏 
 </content>
 </invoke>
