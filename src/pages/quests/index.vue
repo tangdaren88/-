@@ -5,6 +5,7 @@ import ModalMask from '@/components/ModalMask.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
 import { editQuest, removeQuest } from '@/memory/apply';
+import { apiSettings } from '@/api/settings';
 import { derivedMeta, memory } from '@/memory/store';
 import type { MemQuest, QuestStatus } from '@/memory/types';
 import { getContext } from '@/st/context';
@@ -139,6 +140,13 @@ function confirmRemoveQuest() {
 
     <div class="bbs-quests-wrap">
       <div v-if="memory.quests.length || hasLeaf">
+        <label class="bbs-quest-switch" title="任务系统总开关(与设置页「任务」开关同步)">
+          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode" />
+          <span>
+            自动捕捉任务
+            <em>开启:随剧情摘要自动回报任务并注入主模型防目标线写丢。关闭:不再注入、摘要也不再捕捉任务(已有记录保留,重新打开即恢复);仍可手动增删改回看。</em>
+          </span>
+        </label>
         <p class="bbs-npc-mainhint">主线推动剧情的核心目标,支线是可接可不做的委托;随剧情自动捕捉演化,完成/失败后移入下方「已完结」归档(不再注入)。点 + 手动添加。</p>
 
         <!-- 主线 -->
@@ -330,6 +338,37 @@ function confirmRemoveQuest() {
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+}
+/* —— 页内总开关:与设置页「任务」开关同一数据,方便不玩任务时一键关 —— */
+.bbs-quest-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 2px 0 10px;
+  border: 1px dashed var(--bbs-line);
+  border-radius: var(--bbs-radius);
+  cursor: pointer;
+}
+.bbs-quest-switch .bbs-checkbox {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.bbs-quest-switch span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--bbs-ink);
+}
+.bbs-quest-switch em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--bbs-ink-muted);
 }
 .bbs-npc-group {
   display: flex;
