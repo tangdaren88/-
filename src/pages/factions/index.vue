@@ -186,24 +186,25 @@ function confirmRemoveFaction() {
 
 <template>
   <section class="bbs-page">
-    <header class="bbs-section-head">
-      <div>
-        <h2 class="bbs-title">势力</h2>
-        <p class="bbs-title-sub">权力格局:首轮世界观总览「权力与势力」自动捕捉,摘要随剧情演化(新立/改隶/覆灭);子势力缩进成树,与{{ protagonistName }}的关系挂在各势力名下</p>
-      </div>
-    </header>
-    <div class="bbs-rule" role="separator" />
     <SummaryOnlyNotice />
 
     <div class="bbs-factions-wrap">
       <div v-if="factionCount || hasLeaf" class="bbs-npc-group">
-        <div class="bbs-npc-grouphead clickable" title="点击折叠/展开" @click="toggleFactionsCollapse">
-          <span class="bbs-profile-toggle" :class="{ collapsed: factionsCollapsed }"><Icon name="chevron" /></span>
-          <span class="bbs-npc-grouptag is-main"><Icon name="factions" />势力</span>
-          <span v-if="factionsCollapsed && factionCount" class="bbs-profile-count">{{ factionCount }}</span>
-          <span v-else class="bbs-npc-grouphint">权力格局(世界观总览自动捕捉 + 随剧情演变);点 + 添加顶级势力,点卡片上的 + 添加其子势力</span>
-          <button class="bbs-item-act" type="button" title="添加势力" @click.stop="openFactionAdd"><Icon name="plus" /></button>
+        <div class="bbs-npc-grouphead">
+          <button
+            class="bbs-fold-head"
+            type="button"
+            :aria-expanded="!factionsCollapsed"
+            :title="factionsCollapsed ? '展开势力' : '收起势力'"
+            @click="toggleFactionsCollapse"
+          >
+            <Icon name="chevron" class="bbs-fold-caret" :class="{ 'is-collapsed': factionsCollapsed }" />
+            <h2 class="bbs-faction-title">势力</h2>
+            <span v-if="factionCount" class="bbs-fold-count">{{ factionCount }}</span>
+          </button>
+          <button class="bbs-add-mini" type="button" title="添加顶级势力" @click="openFactionAdd()"><Icon name="plus" /></button>
         </div>
+        <p class="bbs-npc-mainhint">权力格局:首轮世界观总览「权力与势力」自动捕捉,随剧情演化(新立/改隶/覆灭);点 + 添加顶级势力,点卡片上的 + 添加其子势力,与{{ protagonistName }}的关系挂在各势力名下。</p>
         <div v-if="!factionsCollapsed" class="bbs-npc-list">
           <template v-if="factionRows.length">
             <article
@@ -316,54 +317,53 @@ function confirmRemoveFaction() {
 }
 .bbs-npc-grouphead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
 }
-.bbs-npc-grouphead.clickable {
+.bbs-npc-grouphead .bbs-add-mini {
+  margin-left: auto;
+}
+/* —— 折叠头:与角色页生活小档案/摘要页计划悬念同款——左箭头 + 纯文字标题 + 金色计数药丸,无徽章 —— */
+.bbs-fold-head {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
 }
-.bbs-npc-grouptag {
-  font-size: 11px;
+.bbs-faction-title {
+  margin: 0;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  padding: 2px 9px;
-  border-radius: var(--bbs-radius-pill);
-  background: var(--bbs-surface-2);
-  color: var(--bbs-ink-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  color: var(--bbs-ink);
 }
-.bbs-npc-grouptag.is-main {
-  background: var(--bbs-accent);
-  color: var(--bbs-accent-ink);
-}
-.bbs-npc-grouphint {
-  font-size: 11.5px;
-  color: var(--bbs-ink-muted);
-}
-.bbs-profile-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.bbs-fold-caret {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
   color: var(--bbs-ink-muted);
-  font-size: 13px;
-  transition: transform 0.16s var(--bbs-ease), color var(--bbs-dur) var(--bbs-ease);
+  transition: transform 0.2s ease, color 0.15s;
 }
-.bbs-profile-toggle.collapsed {
+.bbs-fold-caret.is-collapsed {
   transform: rotate(-90deg);
 }
-.bbs-profile-count {
+.bbs-fold-head:hover .bbs-fold-caret,
+.bbs-fold-head:focus-visible .bbs-fold-caret {
+  color: var(--bbs-accent);
+}
+.bbs-fold-count {
   flex: 0 0 auto;
   font-size: 11px;
-  font-family: var(--bbs-font-mono);
-  color: var(--bbs-ink-muted);
-  padding: 0 6px;
+  font-weight: 600;
+  color: var(--bbs-accent);
+  background: var(--bbs-accent-soft);
+  border: 1px solid var(--bbs-accent);
   border-radius: var(--bbs-radius-pill);
-  background: var(--bbs-surface-2);
+  padding: 1px 9px;
+  font-variant-numeric: tabular-nums;
 }
 
 .bbs-npc-list {
