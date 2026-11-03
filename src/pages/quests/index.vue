@@ -4,7 +4,7 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
-import { editQuest, removeQuest } from '@/memory/apply';
+import { editQuest, removeQuest, upsertQuest } from '@/memory/apply';
 import { apiSettings } from '@/api/settings';
 import { derivedMeta, memory } from '@/memory/store';
 import type { MemQuest, QuestStatus } from '@/memory/types';
@@ -132,6 +132,47 @@ function confirmRemoveQuest() {
   if (questRemoving.value && !removeQuest(questRemoving.value.name)) toast('没有可写入的摘要楼层(先补摘一次)', 'error');
   questRemoving.value = null;
 }
+
+/* —— 批量导入:粘贴一段文本,按换行/顿号/逗号/分号等拆成一条条任务 —— */
+const questImporting = ref<{ kind: 'main' | 'side'; text: string } | null>(null);
+function openQuestImport(kind: 'main' | 'side') {
+  if (!hasLeaf.value) {
+    toast('没有可写入的摘要楼层(先补摘一次)', 'error');
+    return;
+  }
+  questImporting.value = { kind, text: '' };
+}
+function cancelQuestImport() {
+  questImporting.value = null;
+}
+function confirmQuestImport() {
+  const e = questImporting.value;
+  if (!e) return;
+  // 换行/顿号/中英文逗号/分号/句号都当分隔符,整段文本拆成一条条任务名
+  const parts = e.text.split(/[\r\n、,，;；。;]+/).map(s => s.trim()).filter(Boolean);
+  if (!parts.length) {
+    toast('没有可导入的任务名', 'error');
+    return;
+  }
+  const exist = new Set(memory.quests.map(q => q.name.trim().toLowerCase()));
+  let added = 0;
+  let skipped = 0;
+  for (const name of parts) {
+    if (exist.has(name.toLowerCase())) {
+      skipped++; // 与已有任务重名直接跳过,不打断整批
+      continue;
+    }
+    exist.add(name.toLowerCase());
+    if (!upsertQuest({ name, kind: e.kind })) {
+      toast('没有可写入的摘要楼层(先补摘一次)', 'error');
+      return;
+    }
+    added++;
+  }
+  if (added) toast(`已导入 ${added} 个${e.kind === 'main' ? '主线' : '支线'}任务${skipped ? `,跳过 ${skipped} 个重复` : ''}`);
+  else toast('全部为重复任务名,未导入', 'error');
+  questImporting.value = null;
+}
 </script>
 
 <template>
@@ -163,6 +204,7 @@ function confirmRemoveQuest() {
               <h2 class="bbs-faction-title">主线任务</h2>
               <span v-if="mainQuests.length" class="bbs-fold-count">{{ mainQuests.length }}</span>
             </button>
+            <button class="bbs-add-mini" type="button" title="批量导入主线任务" @click="openQuestImport('main')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加主线任务" @click="openQuestAdd('main')"><Icon name="plus" /></button>
           </div>
           <div v-if="!collapsed.main" class="bbs-npc-list">
@@ -203,6 +245,7 @@ function confirmRemoveQuest() {
               <h2 class="bbs-faction-title">支线任务</h2>
               <span v-if="sideQuests.length" class="bbs-fold-count">{{ sideQuests.length }}</span>
             </button>
+            <button class="bbs-add-mini" type="button" title="批量导入支线任务" @click="openQuestImport('side')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加支线任务" @click="openQuestAdd('side')"><Icon name="plus" /></button>
           </div>
           <div v-if="!collapsed.side" class="bbs-npc-list">
@@ -310,6 +353,31 @@ function confirmRemoveQuest() {
         </div>
       </ModalMask>
 
+      <!-- 任务 批量导入弹窗:粘贴一段文本按分隔符拆成一条条任务 -->
+      <ModalMask :open="!!questImporting" @close="cancelQuestImport">
+        <div v-if="questImporting" class="bbs-modal" role="dialog" aria-modal="true" aria-label="批量导入任务">
+          <header class="bbs-modal-head">
+            <span class="bbs-modal-title">批量导入{{ questImporting.kind === 'main' ? '主线' : '支线' }}任务</span>
+            <button class="bbs-item-act" type="button" title="关闭" @click="cancelQuestImport"><Icon name="close" /></button>
+          </header>
+          <label class="bbs-modal-field">
+            <span class="bbs-modal-label">任务列表(每行一个;顿号、逗号、分号、句号分隔也会拆开)</span>
+            <textarea
+              v-model="questImporting.text"
+              v-autosize
+              class="bbs-input bbs-modal-textarea bbs-modal-autogrow"
+              rows="4"
+              placeholder="如:&#10;吃饭&#10;喝水&#10;睡觉&#10;或: 吃饭、喝水、睡觉"
+            ></textarea>
+          </label>
+          <p class="bbs-import-hint">拆分后的每条会作为独立任务导入,重复的任务名自动跳过;导入后可逐个编辑补充目标描述、进展与关联势力。</p>
+          <footer class="bbs-modal-foot">
+            <button class="bbs-btn" type="button" @click="cancelQuestImport">取消</button>
+            <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!questImporting.text.trim()" @click="confirmQuestImport">导入</button>
+          </footer>
+        </div>
+      </ModalMask>
+
       <ConfirmDialog
         :open="!!questRemoving"
         title="删除任务"
@@ -386,6 +454,15 @@ function confirmRemoveQuest() {
 }
 .bbs-npc-grouphead .bbs-add-mini {
   margin-left: auto;
+}
+.bbs-npc-grouphead .bbs-add-mini + .bbs-add-mini {
+  margin-left: 0;
+}
+.bbs-import-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--bbs-ink-muted);
 }
 /* —— 折叠头:与势力页同款——左箭头 + 纯文字标题 + 金色计数药丸 —— */
 .bbs-fold-head {
