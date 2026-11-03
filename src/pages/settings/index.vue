@@ -1075,9 +1075,9 @@ function exportPublicApiDocument() {
 
         <label class="bbs-switch-row">
           <span class="bbs-field-label">任务</span>
-          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode" />
+          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" />
         </label>
-        <p class="bbs-field-hint">任务系统总开关:主线/支线目标链由剧情摘要自动回报 + 任务页手动增删改,注入主模型防目标线写丢。关闭后:不再注入、AI 也不再回报任务(已有记录保留,重新打开即恢复)。</p>
+        <p class="bbs-field-hint">任务系统总开关:主线/支线目标链由剧情摘要自动回报 + 任务页手动增删改,注入主模型防目标线写丢。关闭后:不再注入、AI 也不再回报任务(已有记录保留,重新打开即恢复)。仅摘要模式下仍可控制「是否捕捉任务」。任务页顶部也有此开关。</p>
 
         <label class="bbs-num-row">
           <span class="bbs-field-label">固定档案注入间隔(轮)</span>

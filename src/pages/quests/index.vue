@@ -141,7 +141,7 @@ function confirmRemoveQuest() {
     <div class="bbs-quests-wrap">
       <div v-if="memory.quests.length || hasLeaf">
         <label class="bbs-quest-switch" title="任务系统总开关(与设置页「任务」开关同步)">
-          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode" />
+          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" />
           <span>
             自动捕捉任务
             <em>开启:随剧情摘要自动回报任务并注入主模型防目标线写丢。关闭:不再注入、摘要也不再捕捉任务(已有记录保留,重新打开即恢复);仍可手动增删改回看。</em>
