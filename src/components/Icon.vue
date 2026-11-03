@@ -32,6 +32,9 @@ const PATHS: Record<string, string> = {
   // 势力:旗帜 —— 权力格局/阵营的归属标
   factions:
     '<path d="M6 21V3.5"/><path d="M6 4h11.5l-2.8 3.5 2.8 3.5H6z"/><path d="M6 11h4"/>',
+  // 任务:目标靶 —— 主线/支线目标链(圆环 + 靶心)
+  quests:
+    '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 10.2v3.6M10.2 12h3.6"/>',
   // 设置:滑块
   settings:
     '<path d="M5 8h9M18 8h1"/><path d="M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/>',

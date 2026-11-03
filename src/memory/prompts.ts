@@ -26,7 +26,7 @@ import resummary2Raw from './prompts/resummary2.txt?raw';
 import tasksRaw from './prompts/tasks.txt?raw';
 import builtinProtocolsRaw from './prompts/builtin-protocols.txt?raw';
 import dataWrappersRaw from './prompts/data-wrappers.txt?raw';
-import type { ItemLogEntry, JsonValue, MemFaction, MemKnowledge, MemLifeDetail, MemPlan, MemProtagonist, PlanOutcome, SceneFocus } from './types';
+import type { ItemLogEntry, JsonValue, MemFaction, MemKnowledge, MemLifeDetail, MemPlan, MemProtagonist, MemQuest, PlanOutcome, SceneFocus } from './types';
 
 /** 按「===== NAME =====」分节解析协议文件(08)。 */
 function protocolSections(raw: string): Record<string, string> {
@@ -101,6 +101,9 @@ export const SUMMARY_MACROS: PromptMacro[] = [
   { token: '{{scenes_block}}', desc: '已知地点清单(避免重复记录)' },
   { token: '{{npcs_block}}', desc: '已登场的 NPC 名册(避免重复记录)' },
   { token: '{{factions_block}}', desc: '已知势力名册(权力格局,避免重复记录)' },
+  { token: '{{quests_block}}', desc: '进行中任务(主线/支线目标链,含首行说明;关闭时为空)' },
+  { token: '{{quests_field}}', desc: 'quests 字段 JSON 模板(关闭时为空)' },
+  { token: '{{quests_rule}}', desc: '任务规则段(关闭时为空)' },
   { token: '{{plans_block}}', desc: '未了结的计划/悬念' },
   { token: '{{resolved_plans_block}}', desc: '近期已了结的计划/悬念(含了结方式/原因,防重复记录)' },
   { token: '{{scenefocus_block}}', desc: '本轮在场/即时场景与未完成动作(按需更新)' },
@@ -156,8 +159,28 @@ export const RULE_PROTAGONIST = sliceSection(SUMMARY_SPLIT.rules, '═══ 【
  */
 export const RULE_NPC_AFFINITY = sliceSection(SUMMARY_SPLIT.rules, '═══ 【内心好感与外在态度规则】', '═══ 【势力规则】');
 
-/** 势力规则(factions 字段)。截自 summary.txt,单一来源。 */
-export const RULE_FACTIONS = sliceSection(SUMMARY_SPLIT.rules, '═══ 【势力规则】', '═══ 【计划/悬念规则】');
+/**
+ * 势力规则(factions 字段)。截自 summary.txt,单一来源;
+ * 段尾的 {{quests_rule}} 宏行(任务开时才有内容)不属于势力规则,剥掉。
+ */
+export const RULE_FACTIONS = sliceSection(SUMMARY_SPLIT.rules, '═══ 【势力规则】', '═══ 【计划/悬念规则】')
+  .replace(/\n*\{\{quests_rule\}\}\s*$/, '');
+
+/**
+ * 任务规则(quests 字段,主线/支线目标链)。任务功能可整体开关,规则经宏注入
+ * (关闭时整块不发,内置模板里只留 {{quests_rule}} 占位行),故写成常量而非从 summary.txt 截取。
+ */
+export const RULE_QUESTS = `═══ 【任务规则】(quests 字段,主线/支线目标链) ═══
+任务簿记「故事层面当前有哪些目标在跑、进展到哪、成没成」。主线=推动剧情的核心目标(系统性矛盾、长期追求);支线=被明确接下的委托/请求(有委托人或明确目标的事)。与【计划】的边界:计划是**某个角色个人**打算做什么(属于「人」);任务是**叙事层面**的目标与进度(属于「故事」),有明确的完成/失败态。角色自己的小打算写 plans,不要塞进 quests。
+【准入】默认不写。只有:① 正文/世界观明确存在一条跨场景的目标线(需要时间跨度或外部条件才能了结);② 有明确委托/请求被接受。一次性小事、当轮就能了结的事、单纯的想法,一律不写。
+【何时 add】新任务线启动或新委托被接下 → {"name":"任务名","kind":"main|side","desc":"目标与达成标准一句话","faction":"关联势力名(可选,须为已知势力)"}。
+【何时 update】只写有变化的部分,省略的子字段保持旧值:
+  ✦ progress:任务有实质进展/受挫/出现新信息 → 当前进展一句话(累积覆盖,不写流水账)。
+  ✦ desc:目标本身改变(要求变更、对象更换)→ 新目标。
+  ✦ faction:任务归属势力变化或明确 → 势力名;空字符串=清除关联。
+  ✦ status:"done"(完成)或"failed"(失败/放弃)即归档——归档后不再出现在任务注入里,须同时写 finishedTime=故事内完成/失败时间;状态没变就**省略 status**,不要反复重报。
+【何时 remove】仅限明显记错/重复的条目;正常完结一律用 status 归档,不要删除(保留剧情脉络)。
+【严禁重复结算】已归档(done/failed)的任务不再输出;【已知任务】里已有且无变化的任务不输出 quests。`;
 
 /** 互动局势卡规则(sceneFocus 字段)。截到宏行为止:其后的生活小档案等规则由各自的兼容协议另补。 */
 export const RULE_SCENE_FOCUS = sliceSection(SUMMARY_SPLIT.rules, '═══ 【互动局势卡规则】', '{{lifedetails_rule}}');
@@ -399,6 +422,8 @@ interface BuildArgs {
   npcs: NpcSummaryView[];
   /** 已知势力(权力格局名册,供 AI 复用命名、防重复记录、判断势力演变) */
   factions: MemFaction[];
+  /** 进行中的任务(主线/支线,供 AI 复用命名、防重复记录、推进/归档);省略=任务功能关闭,规则/字段/材料整块不发 */
+  quests?: Pick<MemQuest, 'name' | 'kind' | 'desc' | 'progress' | 'faction'>[];
   /** 未了结计划(顺序即编号 p1..pn);createdTime/targetTime 为故事内时间(可空) */
   openPlans: { kind: 'plan' | 'suspense'; content: string; createdTime?: string; targetTime?: string }[];
   /** 近期已完成的计划/悬念(已按 resolvedAt 倒序取好最近 N 条);防副模型重复记录。空数组→渲染「(无)」 */
@@ -521,6 +546,26 @@ export function fmtFactions(factions: BuildArgs['factions'], user = '主角'): s
     for (const c of childrenOf.get(key(f.name)) ?? []) pushOne(c, depth + 1);
   };
   for (const t of tops) pushOne(t, 0);
+  return lines.join('\n');
+}
+
+/**
+ * 任务列表(给副模型看的材料):主线在前、支线在后,各一条一行。
+ * 关联势力标在行尾(悬空势力名照写,模型能对上总览里的势力即可)。
+ */
+export function fmtQuests(
+  quests: Pick<MemQuest, 'name' | 'kind' | 'desc' | 'progress' | 'faction'>[] | undefined,
+): string {
+  if (!quests?.length) return '  (无)';
+  const lines: string[] = [];
+  for (const kind of ['main', 'side'] as const) {
+    for (const q of quests.filter(x => x.kind === kind)) {
+      const desc = oneLine(q.desc) ? ` —— ${oneLine(q.desc)}` : '';
+      const prog = oneLine(q.progress) ? `｜进展:${oneLine(q.progress)}` : '';
+      const fac = oneLine(q.faction) ? `｜关联势力:${oneLine(q.faction)}` : '';
+      lines.push(`  - [${kind === 'main' ? '主线' : '支线'}] ${q.name}${desc}${prog}${fac}`);
+    }
+  }
   return lines.join('\n');
 }
 
@@ -797,6 +842,12 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     scenes_block: fmtScenes(a.scenes),
     npcs_block: fmtNpcs(a.npcs),
     factions_block: fmtFactions(a.factions, a.user || '主角'),
+    // 任务三处:功能关闭(未传 quests)时全为空串,提示词与关闭前一字不差
+    quests_block: a.quests
+      ? `- 已知任务(主线/支线目标链,只列进行中的;复用其命名、勿重复记录 —— 见【任务规则】):\n${fmtQuests(a.quests)}\n`
+      : '',
+    quests_field: a.quests ? QUESTS_FIELD_TMPL : '',
+    quests_rule: a.quests ? `\n${RULE_QUESTS}\n` : '',
     plans_block: fmtPlans(a.openPlans),
     resolved_plans_block: fmtResolvedPlans(a.resolvedPlans),
     scenefocus_block: fmtSceneFocus(a.sceneFocus),
@@ -847,6 +898,10 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
   if (a.knowledge && !custom.includes('{{knowledge_rule}}')) supplements.push(KNOWLEDGE_PROTOCOL_SUPPLEMENT);
   // 势力规则在内置模板里是字面正文(非宏),照内置改的模板自带;旧版自定义模板没有 → 补协议
   if (!prompt.includes('═══ 【势力规则】')) supplements.push(FACTIONS_PROTOCOL_SUPPLEMENT);
+  // 任务规则经宏注入:自定义模板带了 {{quests_rule}} 宏(或字面正文)就不再补;关闭时不补
+  if (a.quests && !custom.includes('{{quests_rule}}') && !prompt.includes('═══ 【任务规则】')) {
+    supplements.push(QUESTS_PROTOCOL_SUPPLEMENT);
+  }
   if (!prompt.includes('═══ 【内心好感与外在态度规则】')) supplements.push(RULE_NPC_AFFINITY);
   // 关系线保留:自定义模板未带入时补上,保证慢热互动不在摘要/压缩里被删空(与内置模板同源)
   if (!prompt.includes('【关系线保留】')) supplements.push(RULE_RELATION_MOMENTUM);
@@ -860,6 +915,7 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     user: `${prompt}\n\n【主角当前档案(本轮之前,只读参考)】\n${macros.protagonist_block}`
       + (prompt.includes(macros.npcs_block) ? '' : `\n\n【已登场NPC(本轮之前,好感估计只作基线,不重复结算)】\n${macros.npcs_block}`)
       + (a.factions?.length && !prompt.includes(macros.factions_block) ? `\n\n【已知势力(本轮之前,只读参考)】\n${macros.factions_block}` : '')
+      + (a.quests?.length && !prompt.includes(macros.quests_block) ? `\n\n${macros.quests_block}` : '')
       + (prompt.includes(macros.lifedetails_block.trim()) ? '' : `\n\n${macros.lifedetails_block}`)
       + (!a.knowledge || prompt.includes(macros.knowledge_block.trim()) ? '' : `\n\n${macros.knowledge_block}`),
   };
@@ -916,6 +972,23 @@ ${FACTIONS_FIELD_TMPL.replace(/^,\n/, '')}
 }
 
 ${RULE_FACTIONS}`;
+
+/** 任务字段的 JSON 模板片段(带前导逗号,接在 factions 之后)。 */
+const QUESTS_FIELD_TMPL = `,
+  "quests": {
+    "add": [{ "name": "任务名(与【已知任务】对照,已有的勿再add)", "kind": "main或side", "desc": "目标与达成标准一句话", "faction": "关联势力名(可选,须为已知势力)" }],
+    "update": [{ "name": "已有任务名", "progress": "当前进展一句话(累积覆盖,可选)", "desc": "新目标(可选;空字符串=清除)", "faction": "关联势力(可选;空字符串=清除)", "status": "仅完成/失败时写:done或failed,并加 finishedTime=故事内时间" }],
+    "remove": ["明显记错/重复的任务名(正常完结用status归档,勿remove)"]
+  }`;
+
+/** 自定义摘要模板不认识任务字段;补字段协议(可选字段,不破坏旧模板;任务关闭时不补)。 */
+const QUESTS_PROTOCOL_SUPPLEMENT = `【柏宝书任务兼容协议】
+最终 JSON 根对象可增加一个可选字段(没有可记的就不要输出它):
+{
+${QUESTS_FIELD_TMPL.replace(/^,\n/, '')}
+}
+
+${RULE_QUESTS}`;
 
 /**
  * 批量摘要的参数。批量只产 summary + 起止时间,故不传物品/计划(避免多楼顺序错乱)——

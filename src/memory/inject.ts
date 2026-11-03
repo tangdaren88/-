@@ -14,7 +14,7 @@ import { apiSettings, engineActiveHere } from '@/api/settings';
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
 import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLeaf, itemReachableAtScene, leafValid } from './apply';
-import { fmtFactions, fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
+import { fmtFactions, fmtItems, fmtPlans, fmtQuests, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtKnowledgeInjection } from './knowledge';
 import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING } from './npcRelations';
@@ -645,6 +645,13 @@ export function buildStateInjectionText(): string {
     st.push(`[势力格局(权力关系与主角立场,随剧情演变)]\n${factionBlock}`);
   }
 
+  // 任务(自用二改):主线/支线目标链,只注入进行中的;完成/失败即归档(页面可回看,不进提示词)。
+  const questsOn = inj.quests && memory.quests.some(q => q.status === 'active');
+  if (questsOn) {
+    const questBlock = fmtQuests(memory.quests.filter(q => q.status === 'active'));
+    st.push(`[任务(主线/支线目标链,随剧情演变;完成/失败即归档)]\n${questBlock}`);
+  }
+
   // 镜瞳·深度档案(自用二改):客观固定基底,按间隔注入防人设漂移。
   // 性格与对主角态度是变量 —— 以名册当前状态为准,这里只兜住「不会变的骨相」。
   const profilesOn = inj.deepProfiles && memory.deepProfiles.length > 0 && shouldInjectProfiles(chat);
@@ -692,7 +699,7 @@ export function buildStateInjectionText(): string {
   // 状态块在有任何有意义内容时才注入(物品/计划即使空也会有「(无)」占位,
   // 但只要存在摘要或时间/地点就值得带上整块)
   const hasProtagonist = inj.protagonist && Object.values(memory.protagonist).some(value => !!oneLine(value));
-  const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || (factionsOn) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length) || !!knowledgeBlock || !!memory.worldOverview.trim() || profilesOn;
+  const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || (factionsOn) || (questsOn) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length) || !!knowledgeBlock || !!memory.worldOverview.trim() || profilesOn;
   if (!hasState) return '';
   // 首尾私密简报框定,避免主模型把状态快照当成要复述/输出的模板(正文后跟吐一份状态)
   return `${MEMORY_BRIEFING_NOTE}\n[当前状态]\n${st.join('\n')}\n${MEMORY_BRIEFING_END}`;

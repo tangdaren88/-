@@ -11,7 +11,7 @@ import { scheduleVectorIndex } from './vector';
 import { invalidateRecallCache } from './vector/cache';
 import { applyConditionPatch, hasConditionPatchContent, stripConditionFragmentIds } from './conditionPatch';
 import { createEmptyMemory } from './types';
-import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, FactionDelta, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemFaction, MemLifeDetail, MemNpc, MemPlan, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProtagonistDelta, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
+import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, FactionDelta, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemFaction, MemLifeDetail, MemNpc, MemPlan, MemQuest, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProtagonistDelta, QuestDelta, QuestStatus, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
 
 // 供既有调用方继续从 apply 取在场类型;定义在 types.ts 与名册展示共用。
 export type { NpcPresence } from './types';
@@ -279,6 +279,31 @@ function cleanFactionList(v: unknown): FactionDelta[] {
   return arr(v).map(cleanFactionDelta).filter((x): x is FactionDelta => !!x);
 }
 
+/** 清洗单个任务指令。desc/progress/faction 用 patchText(空串=明确清除);无名不记 */
+function cleanQuestDelta(raw: unknown): QuestDelta | null {
+  if (!isRecord(raw)) {
+    const name = scalarText(raw);
+    return name ? { name } : null;
+  }
+  const name = namedText(raw, ['name', 'quest', 'id']);
+  if (!name) return null;
+  const kindRaw = scalarText(raw.kind).toLowerCase();
+  const statusRaw = scalarText(raw.status).toLowerCase();
+  return {
+    name,
+    kind: kindRaw === 'side' ? 'side' : kindRaw === 'main' ? 'main' : undefined,
+    desc: patchText(raw.desc),
+    progress: patchText(raw.progress),
+    status: statusRaw === 'done' || statusRaw === 'completed' || statusRaw === '完成' ? 'done' : statusRaw === 'failed' ? 'failed' : statusRaw === 'active' ? 'active' : undefined,
+    finishedTime: optText(raw.finishedTime),
+    faction: patchText(raw.faction),
+  };
+}
+
+function cleanQuestList(v: unknown): QuestDelta[] {
+  return arr(v).map(cleanQuestDelta).filter((x): x is QuestDelta => !!x);
+}
+
 /**
  * 清洗局势卡快照,三态语义与 patchText 同族:
  *  - undefined → undefined(未提供=不更新)
@@ -473,6 +498,17 @@ function cleanStoredDelta(raw: StoredDelta): StoredDelta {
     if (Object.keys(factions).length) out.factions = factions;
   }
 
+  if (isRecord(raw.quests)) {
+    const quests: NonNullable<StoredDelta['quests']> = {};
+    const add = cleanQuestList(raw.quests.add);
+    const update = cleanQuestList(raw.quests.update);
+    const remove = cleanTextList(raw.quests.remove, ['name', 'quest', 'id']);
+    if (add.length) quests.add = add;
+    if (update.length) quests.update = update;
+    if (remove.length) quests.remove = remove;
+    if (Object.keys(quests).length) out.quests = quests;
+  }
+
   if (isRecord(raw.plans)) {
     const plans: NonNullable<StoredDelta['plans']> = {};
     const add = cleanPlanAddList(raw.plans.add);
@@ -522,6 +558,10 @@ export function npcId(name: string): string {
 /** 势力 id:按规范化名,故重放幂等、手动 op 可稳定引用 */
 export function factionId(name: string): string {
   return `faction:${norm(name)}`;
+}
+/** 任务 id:确定性派生(重放幂等、手动 op 稳定引用;改名=换 id) */
+export function questId(name: string): string {
+  return `quest:${norm(name)}`;
 }
 /** 计划 id:产生它的叶子 id + 在该叶子 add 数组里的序号 */
 export function planId(leafId: string, addIndex: number): string {
@@ -1511,6 +1551,53 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
     }
   }
 
+  // 任务:主线/支线目标链。add 视作补全(仅填空,不覆盖既有);update 按名 upsert(无名先建);
+  // status done/failed 即归档(记录仍在,不再注入);remove 是硬删(手动用)。
+  if (d.quests) {
+    const applyQuest = (q: MemQuest, src: QuestDelta): void => {
+      if (src.kind) q.kind = src.kind;
+      if (typeof src.desc === 'string') q.desc = src.desc.trim() || undefined;
+      if (typeof src.progress === 'string') q.progress = src.progress.trim() || undefined;
+      if (src.status) q.status = src.status;
+      if (src.finishedTime) q.finishedTime = src.finishedTime.trim();
+      if (typeof src.faction === 'string') q.faction = src.faction.trim() || undefined;
+      q.updatedAt = t;
+    };
+    for (const add of d.quests.add ?? []) {
+      if (!add?.name?.trim()) continue;
+      const id = questId(add.name);
+      const ex = mem.quests.find(q => q.id === id);
+      if (ex) {
+        // 已存在:add 视作补全(仅填空,不覆盖既有),同势力语义
+        if (add.kind && ex.kind !== add.kind) ex.kind = add.kind;
+        if (add.desc && !ex.desc) ex.desc = add.desc.trim();
+        if (add.progress && !ex.progress) ex.progress = add.progress.trim();
+        if (add.status && ex.status === 'active') ex.status = add.status;
+        if (add.finishedTime && !ex.finishedTime) ex.finishedTime = add.finishedTime.trim();
+        if (add.faction && !ex.faction) ex.faction = add.faction.trim();
+        ex.updatedAt = t;
+      } else {
+        const q: MemQuest = { id, name: add.name.trim(), kind: add.kind ?? 'main', status: add.status ?? 'active', createdAt: t, updatedAt: t };
+        applyQuest(q, add);
+        mem.quests.push(q);
+      }
+    }
+    for (const upd of d.quests.update ?? []) {
+      if (!upd?.name?.trim()) continue;
+      let q = mem.quests.find(x => x.id === questId(upd.name));
+      if (!q) {
+        q = { id: questId(upd.name), name: upd.name.trim(), kind: upd.kind ?? 'main', status: 'active', createdAt: t, updatedAt: t };
+        mem.quests.push(q);
+      }
+      applyQuest(q, upd);
+    }
+    for (const name of d.quests.remove ?? []) {
+      if (!name?.trim()) continue;
+      const idx = mem.quests.findIndex(x => x.id === questId(name));
+      if (idx >= 0) mem.quests.splice(idx, 1);
+    }
+  }
+
   // 计划 / 悬念
   if (d.plans) {
     (d.plans.add ?? []).forEach((add, addIdx) => {
@@ -1623,11 +1710,11 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
 export function deriveMemory(
   chat: STMessage[] | null,
   upToExclusive?: number,
-): Pick<BaibaiMemory, 'state' | 'protagonist' | 'items' | 'plans' | 'scenes' | 'npcs' | 'factions' | 'itemLog' | 'lifeDetails' | 'knowledge' | 'vars'> {
+): Pick<BaibaiMemory, 'state' | 'protagonist' | 'items' | 'plans' | 'scenes' | 'npcs' | 'factions' | 'quests' | 'itemLog' | 'lifeDetails' | 'knowledge' | 'vars'> {
   const mem = createEmptyMemory();
   // 变量从三层合并模板起算(无 chat 也返回初始状态);seed 时展开模板里的 ST 宏({{user}} 等)
   mem.vars = expandVarMacros(mergeTemplates(memory.varTemplates));
-  if (!chat) return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
+  if (!chat) return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, quests: mem.quests, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
   const end = typeof upToExclusive === 'number' ? Math.min(upToExclusive, chat.length) : chat.length;
   for (let i = 0; i < end; i++) {
     if (chat[i]?.extra?.bbs_omit) continue; // 番外楼:不参与派生重放
@@ -1639,7 +1726,7 @@ export function deriveMemory(
   }
   // 只留最近若干条变动(注入/喂模型够用即可,省 token)
   if (mem.itemLog.length > ITEM_LOG_KEEP) mem.itemLog = mem.itemLog.slice(-ITEM_LOG_KEEP);
-  return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
+  return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, quests: mem.quests, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
 }
 
 /** 变动日志保留的最近条数(注入与喂摘要共用)。 */
@@ -1834,6 +1921,18 @@ export function finalizeDelta(
     if (update.length) factions.update = update;
     if (remove.length) factions.remove = remove;
     if (Object.keys(factions).length) out.factions = factions;
+  }
+
+  if (isRecord(delta.quests)) {
+    // 规范化:add/update 必须有名字才保留(无名任务不记)
+    const quests: NonNullable<StoredDelta['quests']> = {};
+    const add = cleanQuestList(delta.quests.add);
+    const update = cleanQuestList(delta.quests.update);
+    const remove = cleanTextList(delta.quests.remove, ['name', 'quest', 'id']);
+    if (add.length) quests.add = add;
+    if (update.length) quests.update = update;
+    if (remove.length) quests.remove = remove;
+    if (Object.keys(quests).length) out.quests = quests;
   }
 
   if (isRecord(delta.plans)) {
@@ -2058,6 +2157,28 @@ export function appendOpToLatestLeaf(op: StoredDelta): boolean {
     if (df.add && !df.add.length) delete df.add;
     if (df.update && !df.update.length) delete df.update;
     if (df.remove && !df.remove.length) delete df.remove;
+  }
+  if (op.quests) {
+    if (op.quests.add?.length || op.quests.update?.length || op.quests.remove?.length) changed = true;
+    // 与势力同款跨桶互斥:同名任务在 add/update 与 remove 之间不能并存(改名 remove旧+add新 往返安全)
+    const dq = (d.quests ??= {});
+    for (const name of op.quests.remove ?? []) {
+      const id = questId(name);
+      if (dq.add) dq.add = dq.add.filter(a => questId(a.name) !== id);
+      if (dq.update) dq.update = dq.update.filter(u => questId(u.name) !== id);
+      dq.remove = [...(dq.remove ?? []).filter(n => questId(n) !== id), name];
+    }
+    for (const a of op.quests.add ?? []) {
+      if (dq.remove) dq.remove = dq.remove.filter(n => questId(n) !== questId(a.name)); // 撤销同名待删
+      (dq.add ??= []).push(a);
+    }
+    for (const u of op.quests.update ?? []) {
+      if (dq.remove) dq.remove = dq.remove.filter(n => questId(n) !== questId(u.name));
+      (dq.update ??= []).push(u);
+    }
+    if (dq.add && !dq.add.length) delete dq.add;
+    if (dq.update && !dq.update.length) delete dq.update;
+    if (dq.remove && !dq.remove.length) delete dq.remove;
   }
   if (op.scenes) {
     if (
@@ -2464,6 +2585,79 @@ export function editFaction(
 export function removeFaction(name: string): boolean {
   const nm = name.trim();
   return nm ? appendOpToLatestLeaf({ factions: { remove: [nm] } }) : false;
+}
+
+/** 手动新增一个任务。无有效叶子返回 false。 */
+export function upsertQuest(fields: {
+  name: string;
+  kind: 'main' | 'side';
+  desc?: string;
+  status?: 'active' | 'done' | 'failed';
+  faction?: string;
+}): boolean {
+  const name = fields.name.trim();
+  if (!name) return false;
+  return appendOpToLatestLeaf({
+    quests: {
+      add: [{
+        name,
+        kind: fields.kind,
+        desc: fields.desc?.trim() || undefined,
+        status: fields.status && fields.status !== 'active' ? fields.status : undefined,
+        faction: fields.faction?.trim() || undefined,
+      }],
+    },
+  });
+}
+
+/**
+ * 手动编辑一个任务,与 editFaction 同范式:
+ *  - 改名:任务 id 按规范化名确定,改名等于换 id → remove(旧名) + add(新名,带全字段)。
+ *  - 仅改字段:update(按原名匹配;desc/progress/faction 空串=清除,status 显式给才动)。
+ * 未显式给的字段从旧任务继承(改名不丢数据)。
+ */
+export function editQuest(
+  oldName: string,
+  patch: {
+    name?: string;
+    kind?: 'main' | 'side';
+    desc?: string;
+    progress?: string;
+    status?: 'active' | 'done' | 'failed';
+    finishedTime?: string;
+    faction?: string;
+  },
+): boolean {
+  const newName = patch.name?.trim() || oldName;
+  const prev = memory.quests.find(q => q.id === questId(oldName));
+  const kind = patch.kind ?? prev?.kind ?? 'main';
+  const desc = patch.desc !== undefined ? patch.desc.trim() : (prev?.desc ?? '');
+  const progress = patch.progress !== undefined ? patch.progress.trim() : (prev?.progress ?? '');
+  const status = patch.status ?? prev?.status ?? 'active';
+  const finishedTime = patch.status && patch.status !== 'active'
+    ? (prev?.finishedTime ?? undefined)
+    : prev?.finishedTime;
+  const faction = patch.faction !== undefined ? patch.faction.trim() : (prev?.faction ?? '');
+  const fields = {
+    kind,
+    desc,
+    progress,
+    status: status !== 'active' ? status : undefined,
+    finishedTime,
+    faction,
+  };
+  if (norm(newName) !== norm(oldName)) {
+    return appendOpToLatestLeaf({
+      quests: { remove: [oldName], add: [{ name: newName, ...fields }] },
+    });
+  }
+  return appendOpToLatestLeaf({ quests: { update: [{ name: newName, ...fields }] } });
+}
+
+/** 手动删除一个任务(硬删;归档只是状态,删除才是移除)。 */
+export function removeQuest(name: string): boolean {
+  const nm = name.trim();
+  return nm ? appendOpToLatestLeaf({ quests: { remove: [nm] } }) : false;
 }
 
 /**

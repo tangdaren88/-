@@ -510,6 +510,34 @@ export interface MemFaction {
   updatedAt: number;
 }
 
+/** 任务状态:进行中(注入);已完成/失败(归档,页面可回看,不再注入) */
+export type QuestStatus = 'active' | 'done' | 'failed';
+
+/**
+ * 任务(派生产物,不持久化)。自用二改:剧情摘要 delta.quests 持续演化 + 手动增删改。
+ * 与「计划」的边界:计划=某个角色个人的打算(属于「人」);任务=叙事层面的目标链(属于「故事」),
+ * 有明确完成态。主线=推动剧情的核心目标;支线=可接可不做的委托,可挂关联势力。
+ * id 确定性:`quest:${规范化名}`,重放幂等;改名=换 id(手动端 remove+add 表达)。
+ */
+export interface MemQuest {
+  id: string;
+  /** 任务名(同时作为匹配键) */
+  name: string;
+  /** main=主线;side=支线 */
+  kind: 'main' | 'side';
+  /** 目标描述:做什么/为什么/做到什么程度算成 */
+  desc?: string;
+  /** 当前进展(AI 随剧情更新;空=无新进展) */
+  progress?: string;
+  status: QuestStatus;
+  /** 关联势力名(原文引用 MemFaction.name;悬空=不显示关联) */
+  faction?: string;
+  /** 故事内完成/失败时间(AI 给了才记) */
+  finishedTime?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /**
  * 了解清单一条:某角色目前知道/以为的一件主角的事(防人设全知:没记的私事默认不知道)。
  * 记的是角色的认知而非真相,把握程度写进句子(认定…/怀疑…/听说…/主角自称…),被骗就照记被骗后的认知。
@@ -555,6 +583,8 @@ export interface BaibaiMemory {
   npcs: MemNpc[];
   /** 派生缓存:势力(从叶子 delta 重放 + 世界观总览种子捕获,见 MemFaction) */
   factions: MemFaction[];
+  /** 派生缓存:任务(主线/支线,从叶子 delta 重放 + 手动增删改,见 MemQuest) */
+  quests: MemQuest[];
   /** 派生缓存:近期物品变动日志(重放时产出,只留最近若干条) */
   itemLog: ItemLogEntry[];
   /** 派生缓存:主角及角色生活小档案(从叶子 delta 重放) */
@@ -587,6 +617,7 @@ export function createEmptyMemory(): BaibaiMemory {
     scenes: [],
     npcs: [],
     factions: [],
+    quests: [],
     itemLog: [],
     varTemplates: { global: { json: {}, meaning: '', rule: '' }, char: { json: {}, meaning: '', rule: '' }, chat: { json: {}, meaning: '', rule: '' } },
     vars: {},
@@ -701,6 +732,23 @@ export interface FactionDelta {
   userRelation?: string;
 }
 
+/** 任务指令里单个任务的形状(AI / 手动共用)。add/update 都按名字 upsert */
+export interface QuestDelta {
+  name: string;
+  /** main=主线;side=支线;省略=默认主线 */
+  kind?: 'main' | 'side';
+  /** 目标描述(空字符串=清除) */
+  desc?: string;
+  /** 当前进展(空字符串=清除) */
+  progress?: string;
+  /** 状态推进:done/failed 即归档(不再注入);省略=保持 */
+  status?: QuestStatus;
+  /** 故事内完成/失败时间(status 归档时可给) */
+  finishedTime?: string;
+  /** 关联势力名(空字符串=清除关联) */
+  faction?: string;
+}
+
 /**
  * 重设父级指令:把已存在的 node(及其整棵子树)平移到 newPath。
  * 覆盖三种情形(都是同一操作):给顶级加父、在已有父子间插入中间节点、改换父级。
@@ -777,6 +825,15 @@ export interface SummaryDelta {
     /** 按名字更新已有势力(权力/成员/与主角关系) */
     update?: FactionDelta[];
     /** 按名字移除(解散/覆灭/被吞并) */
+    remove?: string[];
+  };
+  /** 指令型:任务增删改(可选;主线/支线目标链,完成/失败即归档) */
+  quests?: {
+    /** 新接/新记录的任务 */
+    add?: QuestDelta[];
+    /** 按名字更新已有任务(进展/状态/描述/关联势力) */
+    update?: QuestDelta[];
+    /** 按名字移除(手动用;AI 一般用 status 归档而非删除) */
     remove?: string[];
   };
   /** 指令型:计划/悬念增删 */
@@ -856,6 +913,12 @@ export interface StoredDelta {
     add?: FactionDelta[];
     update?: FactionDelta[];
     /** 按势力名移除(规范化匹配;手动删除种子势力的墓碑也走这里) */
+    remove?: string[];
+  };
+  quests?: {
+    add?: QuestDelta[];
+    update?: QuestDelta[];
+    /** 按任务名移除(规范化匹配;手动删除也走这里) */
     remove?: string[];
   };
   plans?: {

@@ -1073,6 +1073,12 @@ function exportPublicApiDocument() {
         </label>
         <p class="bbs-field-hint">把势力名册(树状:权柄/成员/与主角关系)注入主模型,防权力关系写走样。势力从世界观总览「权力与势力」段自动捕捉,并随剧情摘要持续演变;没有势力时自动不注入。角色页可手动增删改。</p>
 
+        <label class="bbs-switch-row">
+          <span class="bbs-field-label">任务</span>
+          <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode" />
+        </label>
+        <p class="bbs-field-hint">任务系统总开关:主线/支线目标链由剧情摘要自动回报 + 任务页手动增删改,注入主模型防目标线写丢。关闭后:不再注入、AI 也不再回报任务(已有记录保留,重新打开即恢复)。</p>
+
         <label class="bbs-num-row">
           <span class="bbs-field-label">固定档案注入间隔(轮)</span>
           <input v-model.number="apiSettings.deepProfileInterval" class="bbs-input bbs-num" type="number" min="1" max="20" />

@@ -75,6 +75,7 @@ export function recomputeDerived(): void {
   memory.lifeDetails.splice(0, memory.lifeDetails.length, ...d.lifeDetails);
   memory.knowledge.splice(0, memory.knowledge.length, ...d.knowledge);
   memory.factions.splice(0, memory.factions.length, ...d.factions);
+  memory.quests.splice(0, memory.quests.length, ...d.quests);
 
   // 镜瞳捕获(自用二改):世界观总览 + 深度档案 + 问卷关系网,全部从楼层正文派生,不持久化
   const scan = scanJingtong(chat);

@@ -1246,6 +1246,10 @@ async function summarizeFloorWork(
       // 在场标记按「本楼之前」的状态算,要 AI 逐个对照做离场/归场对账(与注入端同一权威判定)
       presence: classifyNpcPresence(n, stateBefore.scenes, stateBefore.state.location, stateBefore.state.locationPath) })),
     factions: stateBefore.factions.map(f => ({ name: f.name, parent: f.parent, desc: f.desc, members: f.members, userRelation: f.userRelation })),
+    // 任务功能开关:关 = 不传 quests,提示词里 quests 字段/规则/材料三处整块消失(照「了解清单」同款门控)
+    quests: apiSettings.injection.quests
+      ? stateBefore.quests.filter(q => q.status === 'active').map(q => ({ name: q.name, kind: q.kind, desc: q.desc, progress: q.progress, faction: q.faction }))
+      : undefined,
     openPlans: openPlansOrdered.map(p => ({ kind: p.kind, content: p.content, createdTime: p.createdTime, targetTime: p.targetTime })),
     // 近期已完成计划:与注入端同口径,截止点用本楼之前的状态(不泄漏未来)
     resolvedPlans: selectRecentResolvedPlans(stateBefore.plans, apiSettings.recentResolvedPlansCount),
