@@ -1077,7 +1077,7 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">固定档案注入间隔(轮)</span>
           <input v-model.number="apiSettings.deepProfileInterval" class="bbs-input bbs-num" type="number" min="1" max="20" />
         </label>
-        <p class="bbs-field-hint">每隔多少轮 AI 楼层注入一次固定档案,1-20。默认 5。开头两轮始终注入(档案刚拍摄完最需要起作用),之后按间隔补注。</p>
+        <p class="bbs-field-hint">每隔多少轮 AI 楼层注入一次固定档案,1-20。默认 5。开头两轮始终注入(档案刚拍摄完最需要起作用),之后按间隔补注。开了摘要直提的话,建议和「直提间隔」填同一个数(如都填 3),让档案补注和名册刷新落在同一批真副API楼层上。</p>
 
         <!-- 不随「仅注入摘要」禁用:此开关同时管记录 -->
         <label class="bbs-switch-row">
