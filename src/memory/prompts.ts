@@ -420,6 +420,8 @@ interface BuildArgs {
   scenes: { path: string[]; desc?: string }[];
   /** 已登场 NPC(供 AI 复用命名、防重复记录、判断状态更新) */
   npcs: NpcSummaryView[];
+  /** 已有固定档案(镜瞳拍摄)的角色名:名单覆盖者 desc/personality 可省;空/缺=规则要求 AI 补全 */
+  deepProfileNames?: string[];
   /** 已知势力(权力格局名册,供 AI 复用命名、防重复记录、判断势力演变) */
   factions: MemFaction[];
   /** 进行中的任务(主线/支线,供 AI 复用命名、防重复记录、推进/归档);省略=任务功能关闭,规则/字段/材料整块不发 */
@@ -841,6 +843,10 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     itemlog_block: fmtItemLog(a.itemLog),
     scenes_block: fmtScenes(a.scenes),
     npcs_block: fmtNpcs(a.npcs),
+    // 已有固定档案(镜瞳)的角色名单:覆盖者性格/外貌可省;名单为空时整行为空,规则改为要求 AI 补全
+    deep_profiles_line: a.deepProfileNames?.length
+      ? `- 已有固定档案的角色(镜瞳拍摄,性格/外貌以档案为准,这些角色 desc/personality 可省):${a.deepProfileNames.join('、')}`
+      : '',
     factions_block: fmtFactions(a.factions, a.user || '主角'),
     // 任务三处:功能关闭(未传 quests)时全为空串,提示词与关闭前一字不差
     quests_block: a.quests

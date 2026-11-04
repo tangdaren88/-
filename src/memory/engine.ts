@@ -1245,6 +1245,8 @@ async function summarizeFloorWork(
     npcs: stateBefore.npcs.map(n => ({ name: n.name, gender: n.gender, age: n.age, ageTime: n.ageTime, relation: n.relation, affinityInner: n.affinityInner, affinityOuter: n.affinityOuter, affinityNote: n.affinityNote, ties: n.ties, title: n.title, personality: n.personality, important: n.important, outfit: n.outfit, condition: n.condition || undefined, follow: n.follow, location: n.location,
       // 在场标记按「本楼之前」的状态算,要 AI 逐个对照做离场/归场对账(与注入端同一权威判定)
       presence: classifyNpcPresence(n, stateBefore.scenes, stateBefore.state.location, stateBefore.state.locationPath) })),
+    // 已有固定档案(镜瞳)名单:摘要据此决定主要角色性格/外貌可省还是必须补全
+    deepProfileNames: memory.deepProfiles.map(p => p.name),
     factions: stateBefore.factions.map(f => ({ name: f.name, parent: f.parent, desc: f.desc, members: f.members, userRelation: f.userRelation })),
     // 任务功能开关:关 = 不传 quests,提示词里 quests 字段/规则/材料三处整块消失(照「了解清单」同款门控)
     quests: apiSettings.injection.quests
