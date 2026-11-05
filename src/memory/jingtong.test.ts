@@ -103,6 +103,19 @@ describe('问卷深建档', () => {
     expect(scan.factions[0].desc).toContain('掌舵');
   });
 
+  it('势力种子:无组织后缀的「人带势力」写法走领袖称谓兜底(地下世界黑道头子)', () => {
+    const ov = [
+      '┌ 镜瞳·世界观总览 ─────────',
+      '③ 权力与势力：老牌政商楚家由楚律维掌舵稳控大局；陆沉洲32岁，中意混血，英俊霸气，地下世界黑道头子，武力天花板级别人物，身高腿长气场超强，实则重情重义。',
+    ].join('\n');
+    const scan = scanJingtong([msg(ov)]);
+    const lu = scan.factions.find(f => f.name.includes('黑道'));
+    expect(lu?.name).toBe('地下世界黑道');
+    expect(lu?.desc).toContain('陆沉洲');
+    // 短名路径不受影响:带后缀的条目仍走「家」抽取
+    expect(scan.factions.some(f => f.name === '楚家')).toBe(true);
+  });
+
   it('问卷备注段整段入缓存(含多行人物小传)', () => {
     const scan = scanJingtong([msg(QUESTIONNAIRE)]);
     expect(scan.notes).toContain('楚律维，42岁'.replace('楚律维，42岁', '42岁'));

@@ -118,6 +118,23 @@ function shortenFactionName(entry: string): string {
 }
 
 /**
+ * 领袖称谓(「人带势力」写法):条目没有组织后缀、也没有权力动词/冒号可拆时,
+ * 试「地下世界黑道头子」式写法 —— 称谓词前的连续汉字短语视为势力名,整句转描述。
+ * 例:「陆沉洲32岁,中意混血,英俊霸气,地下世界黑道头子,武力天花板级别…」→ 名「地下世界黑道」。
+ * 称谓从宽集里剔除了「霸主/掌控者」等易误命中泛指的词(「商场霸主」会抽出「商场」)。
+ */
+const FACTION_LEADER_RE = /([\u4e00-\u9fa5]{2,10})(头子|头目|教父|龙头|首领|掌门|之主)/;
+
+/** 从领袖称谓前抽势力名:剥掉裹挟的虚词与「…的」句式;抽不出(过短/黑名单)返回空串 */
+function extractLeaderFaction(entry: string): string {
+  const m = FACTION_LEADER_RE.exec(entry);
+  if (!m) return '';
+  const name = m[1].replace(/^[的是了和与及在为于跟从向]/, '').replace(/的$/, '').trim();
+  if (name.length < 2 || FACTION_NAME_BLOCK.test(name)) return '';
+  return name;
+}
+
+/**
  * 从世界观总览里截出「权力与势力」段的正文:
  * 标题行(带 ③/数字 编号或以关键词开头)的余文 + 后续行,直到下一个编号标题/【块标题为止。
  * 只认行首编号或关键词开头的行,防把叙事句「各势力暗流涌动」误当标题。
@@ -181,6 +198,13 @@ export function extractFactions(overview: string): JingtongFaction[] {
       if (short && short.length < name.length && !seen.has(normName(short))) {
         if (!desc) desc = name;
         name = short;
+      } else {
+        // 无组织后缀可抽:试领袖称谓(「地下世界黑道头子」式人带势力写法),整句转描述
+        const lead = extractLeaderFaction(name);
+        if (lead && lead.length < name.length && !seen.has(normName(lead))) {
+          if (!desc) desc = name;
+          name = lead;
+        }
       }
     }
     const key = normName(name);
