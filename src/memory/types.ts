@@ -238,6 +238,10 @@ export interface MemProtagonist {
   outfit?: string;
   /** 当前身体状态/健康(覆盖型;恢复正常后清空) */
   condition?: string;
+  /** 稳定人设:性格/行事风格/道德底线(问卷申报或正文明确揭示;覆盖型) */
+  personality?: string;
+  /** 稳定背景:家境/出身/成长经历(问卷申报或正文明确揭示;覆盖型) */
+  background?: string;
 }
 
 /**
@@ -593,6 +597,8 @@ export interface BaibaiMemory {
   knowledge: MemKnowledge[];
   /** 派生缓存:镜瞳世界观总览(从楼层正文扫描,场景页置顶展示 + 可注入) */
   worldOverview: string;
+  /** 派生缓存:问卷回执「备注」段原文(人物小传/世界设定备忘,随注入发给主模型防 OOC) */
+  questionnaireNotes: string;
   /** 派生缓存:镜瞳深度档案(按名字去重,同名取最新楼层;客观基底,不受重总结影响) */
   deepProfiles: JingtongProfile[];
   /** 真源镜像:三层变量定义模板(global/char 来自 settings,chat 来自 chatMetadata) */
@@ -613,6 +619,7 @@ export function createEmptyMemory(): BaibaiMemory {
     lifeDetails: [],
     knowledge: [],
     worldOverview: '',
+    questionnaireNotes: '',
     deepProfiles: [],
     scenes: [],
     npcs: [],
@@ -687,6 +694,10 @@ export interface ProtagonistDelta {
   identity?: string;
   appearance?: string;
   outfit?: string;
+  /** 稳定人设:性格/行事风格(覆盖型;正文明确揭示时写) */
+  personality?: string;
+  /** 稳定背景:家境/出身/成长经历(覆盖型;正文明确揭示时写) */
+  background?: string;
   /** 当前状态/健康(覆盖型) */
   condition?: string;
   /** 旧存档的伤情局部补丁(v0.17 编号协议,已停用):仅重放,新输出不再产生 */

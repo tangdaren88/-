@@ -63,8 +63,8 @@ export function recomputeDerived(): void {
   memory.state.location = d.state.location;
   memory.state.locationPath = d.state.locationPath;
   memory.state.sceneFocus = d.state.sceneFocus;
-  // 年龄(age+ageTime 锚点对)也在 protagonist 上,漏拷会让 UI/注入永远读不到主角年龄
-  for (const key of ['gender', 'age', 'ageTime', 'identity', 'appearance', 'outfit', 'condition'] as const) {
+  // 年龄(age+ageTime 锚点对)也在 protagonist 上,漏拷会让 UI/注入永远读不到主角年龄;性格/背景是稳定人设层
+  for (const key of ['gender', 'age', 'ageTime', 'identity', 'appearance', 'outfit', 'condition', 'personality', 'background'] as const) {
     memory.protagonist[key] = d.protagonist[key];
   }
   memory.items.splice(0, memory.items.length, ...d.items);
@@ -120,12 +120,23 @@ export function recomputeDerived(): void {
       if (memory.npcs.some(n => normName(n.name) === key)) continue;
       memory.npcs.push({ id: `npc:${key}`, name: q.name, relation: q.relation, desc: q.desc, createdAt: Date.now(), updatedAt: Date.now() });
     }
-    // 问卷主角客观信息兜底填空:剧情里已记录过的值不覆盖
+    // 问卷信息兜底填空:剧情里已记录过的值不覆盖;性格/背景是稳定人设层,防 OOC 的关键兜底
     const qp = scan.questionnaireProtagonist;
-    if (!memory.protagonist.gender && qp.gender) memory.protagonist.gender = qp.gender;
-    if (!memory.protagonist.age && qp.age) memory.protagonist.age = qp.age;
-    if (!memory.protagonist.appearance && qp.appearance) memory.protagonist.appearance = qp.appearance;
+    const qpFallback: Array<['gender' | 'age' | 'appearance' | 'identity' | 'personality' | 'background', string | undefined]> = [
+      ['gender', qp.gender],
+      ['age', qp.age],
+      ['appearance', qp.appearance],
+      ['identity', qp.identity],
+      ['personality', qp.personality],
+      ['background', qp.background],
+    ];
+    for (const [key, value] of qpFallback) {
+      const v = value?.trim();
+      if (v && !memory.protagonist[key]) memory.protagonist[key] = v;
+    }
   }
+  // 问卷「备注」段:人物小传/世界设定备忘,存派生缓存供注入(防 OOC);与 NPC 条目独立(有的问卷只有备注没有人名)
+  memory.questionnaireNotes = scan.notes;
   if (scan.factions.length) {
     // 势力种子:首轮世界观总览「权力与势力」段捕捉的势力。重放出的势力已存在则跳过;
     // 被手动删过(叶子 delta.factions.remove 墓碑)的种子不复活

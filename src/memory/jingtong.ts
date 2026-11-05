@@ -25,10 +25,26 @@ export interface JingtongScan {
   worldOverview: string;
   /** 深度档案(按名字去重,同名取最新楼层) */
   profiles: JingtongProfile[];
-  /** 问卷回执解析出的关系网 NPC(最后一次问卷为准) */
+  /** 问卷回执解析出的关系网 NPC(最后一次问卷为准;name=抽出的人名) */
   questionnaireNpcs: QuestionnaireNpc[];
-  /** 问卷回执里的主角客观信息(仅兜底填空,不覆盖已有记录) */
-  questionnaireProtagonist: { gender?: string; age?: string; appearance?: string };
+  /** 问卷回执里的主角信息(客观字段仅兜底填空;goals/secrets 供计划/悬念种子) */
+  questionnaireProtagonist: {
+    gender?: string;
+    age?: string;
+    appearance?: string;
+    /** 关系定位(如「右位」)→ 身份栏兜底 */
+    identity?: string;
+    /** 性格/行事风格 → 主角稳定人设兜底 */
+    personality?: string;
+    /** 家境/出身/父母等合并 → 主角稳定背景兜底 */
+    background?: string;
+    /** 长远目标(计划种子) */
+    goals?: string[];
+    /** 秘密条目(悬念种子;知情人信息拼进对应条目) */
+    secrets?: string[];
+  };
+  /** 问卷「备注」段原文(人物小传/世界设定备忘,注入主模型防 OOC) */
+  notes: string;
   /** 世界观总览「权力与势力」段捕捉的势力种子(取最后一次总览;手动可增删改,墓碑防复活) */
   factions: JingtongFaction[];
 }
@@ -71,6 +87,35 @@ function extractWorldOverview(text: string): string {
 
 /** 常见权力动词:条目里动词前的短语视为势力名,动词起视为权力描述(可在 UI 里改) */
 const FACTION_POWER_VERB = /(掌管|把控|统治|控制|掌握|主导|把持|垄断|操纵|掌控|领导|支配|管理)/;
+
+/** 组织后缀(保守集,按长短排前面优先整词匹配):用于从整句里抽短势力名。单字「会/社」歧义大,不收 */
+const FACTION_SUFFIX_RE = /(家族|集团|财团|资本|商会|公司|王朝|帝国|王国|朝廷|王室|门阀|世家|门派|教会|组织|学院|家|氏|门|派)/g;
+/** 短名黑名单:后缀「家/门/派」极易命中日常词,这些组合不算势力 */
+const FACTION_NAME_BLOCK = /^(社会|大家|人家|自家|国家|玩家|厂家|东家|行家|商家会|前后门|热门|冷门|派头|派送|派遣)/;
+
+/**
+ * 从整句里抽「短势力名」:扫最早出现的组织后缀,取其前紧邻的 1-4 个汉字作前缀,同位取最短。
+ * 例:「老牌政商楚家由楚律维掌舵稳控大局」→「楚家」;「晏氏资本冷眼旁观…」→「晏氏」。
+ * 抽不出(无后缀词/前缀跨非汉字)返回空串。
+ */
+function shortenFactionName(entry: string): string {
+  let best = '';
+  for (const m of entry.matchAll(FACTION_SUFFIX_RE)) {
+    const end = (m.index ?? 0) + m[0].length;
+    for (let len = 1; len <= 4; len++) {
+      const start = end - m[0].length - len;
+      if (start < 0) break;
+      const pre = entry.slice(start, end - m[0].length);
+      if (!/^[\u4e00-\u9fa5]{1,4}$/.test(pre)) continue;
+      const cand = pre + m[0];
+      if (FACTION_NAME_BLOCK.test(cand)) break;
+      if (!best || cand.length < best.length) best = cand;
+      break;
+    }
+    break; // 只取最早出现的后缀(句子通常先给主语势力)
+  }
+  return best;
+}
 
 /**
  * 从世界观总览里截出「权力与势力」段的正文:
@@ -129,6 +174,15 @@ export function extractFactions(overview: string): JingtongFaction[] {
       }
     }
     name = name.replace(/^[「『"']+|[」』"']+$/g, '').trim();
+    // 名字过长(动词拆不动/拆出了半句):试抽短势力名,整句转作描述 —— 防止「老牌政商楚家由楚律维掌舵稳控大局」这种整句卡名
+    // 阈值 >6:短名一般 2-4 字,7 字起就该怀疑混入了描述(如「晏氏资本冷眼旁观」)
+    if (name.length > 6) {
+      const short = shortenFactionName(name);
+      if (short && short.length < name.length && !seen.has(normName(short))) {
+        if (!desc) desc = name;
+        name = short;
+      }
+    }
     const key = normName(name);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -205,33 +259,67 @@ function parseQuestionnaireFields(text: string): Record<string, string> {
   return fields;
 }
 
-/** 关系字段 → 问卷 NPC 条目(name=称谓键,desc=玩家原文,保真不改写) */
+/**
+ * 从关系字段值里抽具体人名:首个分句若以 2-3 个纯汉字短名开头(「楚奕是我男朋友…」「林薇，大学室友」)
+ * 则抽之;泛称/叙述性开头(「爸妈都是…」「无」「AI补」)抽不到 → 返回空串,调用方不建卡。
+ */
+function extractPersonName(v: string | undefined): string {
+  const t = (v ?? '').trim();
+  if (!t) return '';
+  const head = t.split(/[，,。;；、\n]/)[0].trim();
+  const m = head.match(/^([\u4e00-\u9fa5]{2,3})(?:是我|是|就是我|——|—|$)/);
+  return m ? m[1] : '';
+}
+
+/** 关系字段 → 问卷 NPC 条目:从玩家原文抽出**具体人名**当 name(relation 仍存称谓键),desc 保真存原文 */
 function buildQuestionnaireNpcs(f: Record<string, string>): QuestionnaireNpc[] {
   const out: QuestionnaireNpc[] = [];
-  const push = (name: string, relation: string, v: string | undefined) => {
+  const push = (relation: string, v: string | undefined) => {
     if (badVal(v)) return;
+    const name = extractPersonName(v);
+    if (!name) return; // 抽不出具体人(泛称/无/AI补):不建空壳卡;原文已并入主角背景/备注,信息不丢
     out.push({ name, relation, desc: (v ?? '').trim() });
   };
-  push('父母', '父母', f['父母']);
-  // 兄弟姐妹:抽称谓(哥哥/姐姐/弟弟/妹妹…),抽不到就把整字段挂一条
-  const sib = f['兄弟姐妹'];
-  if (!badVal(sib)) {
-    const terms = Array.from(new Set(sib?.match(/哥哥|姐姐|弟弟|妹妹|兄长|双胞胎/g) ?? []));
-    if (terms.length) for (const t of terms) push(t, t, sib);
-    else push('兄弟姐妹', '兄弟姐妹', sib);
-  }
-  push('亲戚', '亲戚', f['亲戚']);
-  push('孩子', '子女', f['孩子']);
-  push('恋人', '恋人', f['情人/交往对象']);
-  push('朋友', '朋友', f['朋友']);
-  push('敌对', '敌对', f['对立/敌对关系']);
-  // 社交圈(正/补充两行合并):提到寄宿/寄养家庭就单独立条 —— 一家三口的信息都在原文里
+  push('父母', f['父母']);
+  push('兄弟姐妹', f['兄弟姐妹']);
+  push('亲戚', f['亲戚']);
+  push('子女', f['孩子']);
+  push('恋人', f['情人/交往对象']);
+  push('朋友', f['朋友']);
+  push('敌对', f['对立/敌对关系']);
+  // 社交圈只保留寄宿/寄养家庭(是「一个家」的完整信息,值得立条);普通同学圈不建人卡
   const social = [f['社交圈'], f['社交圈补充']].filter(v => !badVal(v)).join('\n').trim();
-  if (social) {
-    if (/寄宿家庭|寄养家庭/.test(social)) push('寄宿家庭', '寄宿家庭', social);
-    else push('社交圈', '熟人', social);
-  }
+  if (/寄宿家庭|寄养家庭/.test(social)) push('寄宿家庭', social);
   return out;
+}
+
+/**
+ * 抓「备注」段原文:从「备注：」行起,收集到下一个字段行/分段线为止。
+ * 备注常是多行人物小传(楚律维/晏礼等人设),parseQuestionnaireFields 只留首行会丢文,故单独抓整段。
+ */
+function parseNotesSection(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const parts: string[] = [];
+  let active = false;
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!active) {
+      // 段头两种形态:「备注:xxx」或独立段头行「—— 备注 ——」
+      const m = t.match(/^备注\s*[：:]\s*(.*)$/);
+      if (m) {
+        active = true;
+        if (m[1].trim()) parts.push(m[1].trim());
+      } else if (/^[-—\s]*备注\s*[-—\s]*$/.test(t)) {
+        active = true;
+      }
+      continue;
+    }
+    // 段尾:分段线(——)或新字段行(「长远目标:…」「开局场景:…」)
+    if (/^——/.test(t)) break;
+    if (/^[\u4e00-\u9fa5A-Za-z0-9/·・]{1,14}\s*[：:]/.test(t)) break;
+    if (t) parts.push(t);
+  }
+  return parts.join('\n').trim();
 }
 
 /* ============ 总扫描 ============ */
@@ -242,7 +330,8 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
   let worldOverview = '';
   let questionnaireNpcs: QuestionnaireNpc[] = [];
   let factions: JingtongFaction[] = [];
-  const qp: { gender?: string; age?: string; appearance?: string } = {};
+  let notes = '';
+  const qp: NonNullable<JingtongScan['questionnaireProtagonist']> = {};
   if (chat) {
     for (let i = 0; i < chat.length; i++) {
       const m = chat[i];
@@ -266,8 +355,31 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
         if (/^(男|女)$/.test(g)) qp.gender = g;
         if (!badVal(f['年龄'])) qp.age = f['年龄'].trim();
         if (!badVal(f['外貌'])) qp.appearance = f['外貌'].trim();
+        if (!badVal(f['关系定位'])) qp.identity = f['关系定位'].trim();
+        if (!badVal(f['性格'])) qp.personality = f['性格'].trim();
+        // 稳定背景:家境/出身/父母等非留白值合并(「父母:无,我是在孤儿院长大的」这类带叙述的留白值也收进来)
+        const bgParts: string[] = [];
+        for (const key of ['家境', '出身', '父母', '兄弟姐妹', '亲戚']) {
+          const v = f[key]?.trim();
+          if (!badVal(v)) bgParts.push(`${key}：${v}`);
+        }
+        if (bgParts.length) qp.background = bgParts.join('；');
+        // 长远目标 → 计划种子;秘密(剥掉 1️⃣ 序号后按分号拆条) → 悬念种子
+        const goal = f['长远目标']?.trim();
+        if (!badVal(goal)) qp.goals = goal.split(/[；;]/).map(s => s.trim()).filter(Boolean);
+        const secret = f['秘密']?.trim();
+        if (!badVal(secret)) {
+          const stripNums = (s: string): string => s.replace(/[0-9①②③④⑤⑥⑦⑧⑨⑩]️⃣/g, '').trim();
+          const segs = stripNums(secret).split(/[；;]/).map(s => s.trim()).filter(Boolean);
+          const know = f['知情人']?.trim();
+          const kn = know && !badVal(know) ? stripNums(know).split(/[；;]/).map(s => s.trim()).filter(Boolean) : [];
+          qp.secrets = segs.map((s, idx) => (kn[idx] ? `${s}（知情情况：${kn[idx]}）` : s));
+        }
+        // 备注整段(人物小传/世界设定备忘)
+        const nm = parseNotesSection(text);
+        if (nm) notes = nm;
       }
     }
   }
-  return { worldOverview, profiles: [...profiles.values()], questionnaireNpcs, questionnaireProtagonist: qp, factions };
+  return { worldOverview, profiles: [...profiles.values()], questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
 }

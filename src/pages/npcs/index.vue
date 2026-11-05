@@ -26,6 +26,8 @@ const protagonistHasData = computed(() => Object.values(memory.protagonist).some
 const protagonistHasDetails = computed(() => [
   memory.protagonist.age,
   memory.protagonist.identity,
+  memory.protagonist.personality,
+  memory.protagonist.background,
   memory.protagonist.appearance,
   memory.protagonist.outfit,
   memory.protagonist.condition,
@@ -46,6 +48,8 @@ interface ProtagonistDraft {
   gender: string;
   age: string;
   identity: string;
+  personality: string;
+  background: string;
   appearance: string;
   outfit: string;
   condition: string;
@@ -58,6 +62,8 @@ function openProtagonistEdit() {
     gender: memory.protagonist.gender ?? '',
     age: memory.protagonist.age ?? '',
     identity: memory.protagonist.identity ?? '',
+    personality: memory.protagonist.personality ?? '',
+    background: memory.protagonist.background ?? '',
     appearance: memory.protagonist.appearance ?? '',
     outfit: memory.protagonist.outfit ?? '',
     condition: memory.protagonist.condition ?? '',
@@ -523,7 +529,7 @@ function deleteKnow(k: MemKnowledge) {
 
     <div class="bbs-protagonist-section">
       <div class="bbs-npc-grouphead">
-        <span class="bbs-npc-grouptag is-protagonist"><Icon name="characters" />主角</span>
+        <span class="bbs-npc-grouptag is-protagonist"><Icon name="characters" />user</span>
         <span class="bbs-npc-grouphint" :class="{ 'is-local-only': apiSettings.summaryOnlyMode }">
           {{ apiSettings.summaryOnlyMode ? '仅供柏宝书记录，不发送给主对话 AI' : '始终完整发送,与 NPC 名册分开记录' }}
         </span>
@@ -539,7 +545,7 @@ function deleteKnow(k: MemKnowledge) {
                 class="bbs-item-act"
                 type="button"
                 :disabled="!hasLeaf"
-                :title="hasLeaf ? '编辑主角当前档案' : '需先有摘要才能编辑'"
+                :title="hasLeaf ? '编辑 user 当前档案' : '需先有摘要才能编辑'"
                 @click="openProtagonistEdit"
               >
                 <Icon name="edit" />
@@ -548,6 +554,8 @@ function deleteKnow(k: MemKnowledge) {
           </div>
           <dl v-if="protagonistHasDetails" class="bbs-npc-fields">
             <div v-if="memory.protagonist.identity" class="bbs-npc-field f-title"><dt>身份</dt><dd>{{ memory.protagonist.identity }}</dd></div>
+            <div v-if="memory.protagonist.personality" class="bbs-npc-field"><dt>性格</dt><dd>{{ memory.protagonist.personality }}</dd></div>
+            <div v-if="memory.protagonist.background" class="bbs-npc-field"><dt>背景</dt><dd>{{ memory.protagonist.background }}</dd></div>
             <div v-if="memory.protagonist.appearance" class="bbs-npc-field f-desc"><dt>外貌</dt><dd>{{ memory.protagonist.appearance }}</dd></div>
             <div v-if="memory.protagonist.outfit" class="bbs-npc-field f-outfit"><dt>着装</dt><dd>{{ memory.protagonist.outfit }}</dd></div>
             <div v-if="memory.protagonist.condition" class="bbs-npc-field f-cond"><dt>状态</dt><dd>{{ memory.protagonist.condition }}</dd></div>
@@ -791,9 +799,9 @@ function deleteKnow(k: MemKnowledge) {
     </div>
 
     <ModalMask :open="!!protagonistEditing" @close="cancelProtagonistEdit">
-      <div v-if="protagonistEditing" class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑主角档案">
+      <div v-if="protagonistEditing" class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑 user 档案">
         <header class="bbs-modal-head">
-          <span class="bbs-modal-title">编辑主角档案</span>
+          <span class="bbs-modal-title">编辑 user 档案</span>
           <button class="bbs-item-act" type="button" title="关闭" @click="cancelProtagonistEdit"><Icon name="close" /></button>
         </header>
         <label class="bbs-modal-field">
@@ -807,6 +815,14 @@ function deleteKnow(k: MemKnowledge) {
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">当前身份 / 职业 / 种族 / 公开地位</span>
           <textarea v-model="protagonistEditing.identity" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="可选"></textarea>
+        </label>
+        <label class="bbs-modal-field">
+          <span class="bbs-modal-label">性格 / 行事风格(稳定人设,防 OOC 的关键)</span>
+          <textarea v-model="protagonistEditing.personality" class="bbs-input bbs-modal-textarea" rows="3" placeholder="如:很会装可怜,能屈能伸,演技好,没什么道德枷锁"></textarea>
+        </label>
+        <label class="bbs-modal-field">
+          <span class="bbs-modal-label">背景 / 家境 / 出身(稳定设定)</span>
+          <textarea v-model="protagonistEditing.background" class="bbs-input bbs-modal-textarea" rows="3" placeholder="如:家境贫穷,在孤儿院长大"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">稳定外貌 / 身体特征</span>

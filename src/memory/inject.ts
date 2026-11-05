@@ -372,6 +372,8 @@ function fmtProtagonistContext(protagonist: MemProtagonist, name: string, now: s
     ['性别', protagonist.gender],
     ['年龄', ageDisplay(protagonist.age, protagonist.ageTime, now)],
     ['身份', protagonist.identity],
+    ['性格', protagonist.personality],
+    ['背景', protagonist.background],
     ['外貌', protagonist.appearance],
     ['着装', protagonist.outfit],
     ['状态', protagonist.condition],
@@ -581,6 +583,11 @@ export function buildStateInjectionText(): string {
   // 镜瞳捕获(自用二改):世界观总览置顶 —— 世界基底设定,防轮数一多设定漂移。
   if (inj.worldOverview && memory.worldOverview.trim()) {
     st.push(`[世界观总览(世界基底设定,保持设定一致,勿在正文中复述)]\n${memory.worldOverview.trim()}`);
+  }
+  // 问卷备注(自用二改):玩家申报的人物小传/世界设定备忘 —— 主模型本来只能看到聊天开头的问卷楼,
+  // 轮数一多就被滚出上下文,角色小传随注流失是 OOC 的元凶之一。跟随总览开关注入。
+  if (inj.worldOverview && memory.questionnaireNotes.trim()) {
+    st.push(`[人物与设定备忘(玩家开局的问卷备注,其中人物/势力设定为既定事实,保持一致,勿在正文中复述)]\n${memory.questionnaireNotes.trim()}`);
   }
 
   if (memory.state.time) {

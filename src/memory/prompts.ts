@@ -474,6 +474,8 @@ export function fmtProtagonist(protagonist: MemProtagonist): string {
     ['性别', protagonist.gender],
     ['年龄', age],
     ['身份', protagonist.identity],
+    ['性格', protagonist.personality],
+    ['背景', protagonist.background],
     ['外貌', protagonist.appearance],
     ['着装', protagonist.outfit],
     ['状态', protagonist.condition],
@@ -771,6 +773,8 @@ const PROTAGONIST_PROTOCOL_SUPPLEMENT = `【柏宝书主角档案兼容协议】
     "gender": "性别/性别表现",
     "age": "年龄(仅首次明确或明确变化才写,写原话值,勿自行按时间换算)",
     "identity": "当前身份/职业/种族/公开地位",
+    "personality": "稳定性格/行事风格/道德底线(可选;问卷/备忘已申报而档案还没有时兜底写,正文明确揭示时更新)",
+    "background": "稳定背景:家境/出身/成长经历(可选;同上兜底,不沉淀流水账)",
     "appearance": "当前稳定外貌/身体特征",
     "outfit": "当前完整着装",
     "condition": "身体状态/健康变化后的完整内容(未解除的旧伤照抄;空字符串=完全恢复)"

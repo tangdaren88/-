@@ -1,5 +1,6 @@
 import { apiSettings } from '@/api/settings';
 import { getContext, setMessageText, type STMessage } from '@/st/context';
+import { scanJingtong } from './jingtong';
 import { fmtItemLogInline } from './prompts';
 import { lifeDetailSubject, mergeLifeDetailsOp, sameLifeDetail } from './lifeDetails';
 import { applyKnowledgeOps, cleanKnowledgeOps, finalizeKnowledge, knowledgeOf } from './knowledge';
@@ -371,7 +372,7 @@ function cleanLifeDetailUpdateList(v: unknown): (LifeDetailUpdate & { tier?: 'pi
 function cleanProtagonistDelta(raw: unknown, legacyPatch = false): ProtagonistDelta | null {
   if (!isRecord(raw)) return null;
   const out: ProtagonistDelta = {};
-  for (const key of ['gender', 'age', 'ageTime', 'identity', 'appearance', 'outfit'] as const) {
+  for (const key of ['gender', 'age', 'ageTime', 'identity', 'appearance', 'outfit', 'personality', 'background'] as const) {
     const value = patchText(raw[key]);
     if (value !== undefined) out[key] = value;
   }
@@ -937,7 +938,7 @@ function applyAge(n: { age?: string; ageTime?: string }, src: { age?: string; ag
 
 /** 主角档案是纯覆盖快照;空字符串表示清除旧值。年龄走锚点机制(applyAge)。 */
 function applyProtagonistState(target: BaibaiMemory['protagonist'], src: ProtagonistDelta, storyTime: string): void {
-  for (const key of ['gender', 'identity', 'appearance', 'outfit', 'condition'] as const) {
+  for (const key of ['gender', 'identity', 'appearance', 'outfit', 'personality', 'background', 'condition'] as const) {
     if (typeof src[key] === 'string') target[key] = src[key]!.trim() || undefined;
   }
   // 旧存档的伤情补丁:只改指定片段(新输出已改回全文覆盖)。
@@ -1702,6 +1703,28 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
 }
 
 /**
+ * 问卷种子计划:问卷回执的「长远目标」→ 计划、「秘密」→ 悬念,种进重放起点。
+ *
+ * 必须种在 deriveMemory 重放层(而非 store 派生层):种子先入列,之后楼层的
+ * resolve/reopen/remove(手动或 AI)才能按 id 命中并写进叶子 delta —— 了结/删除
+ * 会随重放正确生效;若种在派生层,状态变化会在下次重放时被抹掉(复活 bug)。
+ * id 用 `plan:qs:*` 前缀与 AI 产生的 `plan:${leafId}#n` 区分,且确定性稳定(重放幂等)。
+ */
+function seedQuestionnairePlans(mem: BaibaiMemory, chat: STMessage[]): void {
+  const scan = scanJingtong(chat);
+  const { goals = [], secrets = [] } = scan.questionnaireProtagonist;
+  const pushSeed = (kind: 'plan' | 'suspense', idx: number, content: string): void => {
+    const text = content.trim();
+    if (!text) return;
+    const id = `plan:qs:${kind === 'plan' ? 'goal' : 'secret'}:${idx}`;
+    if (mem.plans.some(p => p.id === id)) return;
+    mem.plans.push({ id, kind, content: text, status: 'open', createdAt: 0 });
+  };
+  goals.forEach((g, i) => pushSeed('plan', i, g));
+  secrets.forEach((s, i) => pushSeed('suspense', i, s));
+}
+
+/**
  * 从 chat 重放出结构化状态。
  * 按**楼层物理顺序**扫 chat,对每条有效叶子 fold 其 delta(楼层序即叙事序,删消息后天然正确)。
  * 压缩节点只压文本、不带 delta、不参与重放。
@@ -1716,6 +1739,7 @@ export function deriveMemory(
   mem.vars = expandVarMacros(mergeTemplates(memory.varTemplates));
   if (!chat) return { state: mem.state, protagonist: mem.protagonist, items: mem.items, plans: mem.plans, scenes: mem.scenes, npcs: mem.npcs, factions: mem.factions, quests: mem.quests, itemLog: mem.itemLog, lifeDetails: mem.lifeDetails, knowledge: mem.knowledge, vars: mem.vars };
   const end = typeof upToExclusive === 'number' ? Math.min(upToExclusive, chat.length) : chat.length;
+  seedQuestionnairePlans(mem, chat);
   for (let i = 0; i < end; i++) {
     if (chat[i]?.extra?.bbs_omit) continue; // 番外楼:不参与派生重放
     if (!leafValid(chat[i])) continue;
