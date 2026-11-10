@@ -212,8 +212,9 @@ function confirmRemoveFaction() {
               :key="row.f.id"
               class="bbs-npc is-present"
               :class="{ 'is-child': row.depth > 0 }"
-              :style="row.depth > 0 ? { marginLeft: `${Math.min(row.depth, 4) * 18}px` } : undefined"
             >
+              <!-- 层级辅助线:与场景页同款,每级一条细竖轨,贯穿卡片与行间隙 -->
+              <span v-for="d in Math.min(row.depth, 4)" :key="d" class="bbs-faction-rail" aria-hidden="true"></span>
               <div class="bbs-npc-body">
                 <div class="bbs-npc-head">
                   <button
@@ -446,6 +447,29 @@ function confirmRemoveFaction() {
 }
 .bbs-faction-toggle.collapsed {
   transform: rotate(-90deg);
+}
+/* 层级辅助线(与场景页同款):子势力卡片改为 flex 排版,每级一条 14px 竖轨槽,
+   槽内一条 hairline 竖线上下各探出 6px,跨过行间隙连成贯穿线 */
+.bbs-npc.is-child {
+  display: flex;
+  align-items: stretch;
+}
+.bbs-faction-rail {
+  flex: 0 0 14px;
+  position: relative;
+}
+.bbs-faction-rail::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--bbs-line);
+}
+.bbs-npc.is-child .bbs-npc-body {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 /* 收起态的子势力计数:小胶囊跟在名字后 */
 .bbs-faction-childcount {

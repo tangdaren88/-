@@ -804,37 +804,38 @@ function deleteKnow(k: MemKnowledge) {
           <span class="bbs-modal-title">编辑 user 档案</span>
           <button class="bbs-item-act" type="button" title="关闭" @click="cancelProtagonistEdit"><Icon name="close" /></button>
         </header>
+        <p class="bbs-npc-mainhint">各栏最多 50 字:只留稳定设定与辨识度要点,细节留给剧情。</p>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">性别</span>
-          <input v-model="protagonistEditing.gender" class="bbs-input" type="text" placeholder="如:男、女" />
+          <input v-model="protagonistEditing.gender" class="bbs-input" type="text" maxlength="50" placeholder="如:男、女" />
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">年龄(记录当时的值,随剧情时间自动推算)</span>
-          <input v-model="protagonistEditing.age" class="bbs-input" type="text" placeholder="如:25、二十出头" />
+          <input v-model="protagonistEditing.age" class="bbs-input" type="text" maxlength="50" placeholder="如:25、二十出头" />
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">当前身份 / 职业 / 种族 / 公开地位</span>
-          <textarea v-model="protagonistEditing.identity" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="可选"></textarea>
+          <textarea v-model="protagonistEditing.identity" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" maxlength="50" placeholder="可选"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">性格 / 行事风格(稳定人设,防 OOC 的关键)</span>
-          <textarea v-model="protagonistEditing.personality" class="bbs-input bbs-modal-textarea" rows="3" placeholder="如:很会装可怜,能屈能伸,演技好,没什么道德枷锁"></textarea>
+          <textarea v-model="protagonistEditing.personality" class="bbs-input bbs-modal-textarea" rows="3" maxlength="50" placeholder="如:很会装可怜,能屈能伸,演技好,没什么道德枷锁"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">背景 / 家境 / 出身(稳定设定)</span>
-          <textarea v-model="protagonistEditing.background" class="bbs-input bbs-modal-textarea" rows="3" placeholder="如:家境贫穷,在孤儿院长大"></textarea>
+          <textarea v-model="protagonistEditing.background" class="bbs-input bbs-modal-textarea" rows="3" maxlength="50" placeholder="如:家境贫穷,在孤儿院长大"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">稳定外貌 / 身体特征</span>
-          <textarea v-model="protagonistEditing.appearance" class="bbs-input bbs-modal-textarea" rows="2" placeholder="如:黑色短发、左眉有疤"></textarea>
+          <textarea v-model="protagonistEditing.appearance" class="bbs-input bbs-modal-textarea" rows="2" maxlength="50" placeholder="如:黑色短发、左眉有疤"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">当前着装</span>
-          <textarea v-model="protagonistEditing.outfit" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="可选"></textarea>
+          <textarea v-model="protagonistEditing.outfit" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" maxlength="50" placeholder="可选"></textarea>
         </label>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">当前身体状态 / 健康</span>
-          <textarea v-model="protagonistEditing.condition" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="无异常时留空"></textarea>
+          <textarea v-model="protagonistEditing.condition" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" maxlength="50" placeholder="无异常时留空"></textarea>
         </label>
         <footer class="bbs-modal-foot">
           <button class="bbs-btn" type="button" @click="cancelProtagonistEdit">取消</button>
