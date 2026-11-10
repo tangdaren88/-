@@ -547,6 +547,9 @@ function confirmQuestImport() {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 行宽不够时操作钮整体换行,而不是被卡片 overflow:hidden 裁掉 */
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 .bbs-npc-name {
   font-size: 14px;
@@ -561,7 +564,11 @@ function confirmQuestImport() {
 .bbs-npc-gender {
   font-size: 11px;
   color: var(--bbs-ink-muted);
-  flex: 0 0 auto;
+  /* 可收缩省略:长括注不能吃光行宽、把名字挤到 0 宽(v1.5.4「无名牌」bug) */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .bbs-npc-acts {

@@ -409,6 +409,9 @@ function confirmRemoveFaction() {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 行宽不够时操作钮整体换行,而不是被卡片 overflow:hidden 裁掉 */
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 .bbs-npc-name {
   font-size: 14px;
@@ -423,7 +426,11 @@ function confirmRemoveFaction() {
 .bbs-npc-gender {
   font-size: 11px;
   color: var(--bbs-ink-muted);
-  flex: 0 0 auto;
+  /* 可收缩省略:长括注不能吃光行宽、把名字挤到 0 宽(v1.5.4「无名牌」bug) */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* 子势力折叠箭头:与场景树同款——展开朝下,收起朝右;只有挂了子势力的卡片才出现 */

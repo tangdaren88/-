@@ -15,9 +15,9 @@
 import type { STMessage } from '@/st/context';
 import type { JingtongFaction, JingtongProfile, QuestionnaireNpc } from './types';
 
-/** 与 apply.ts 的 norm 同口径(名字匹配键:去首尾空白 + 小写) */
+/** 与 apply.ts 的 norm 同口径(名字匹配键:剥不可见字符 + 去首尾空白 + 小写) */
 export function normName(s: string): string {
-  return String(s ?? '').trim().toLowerCase();
+  return String(s ?? '').replace(/[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\u00ad]/g, '').trim().toLowerCase();
 }
 
 export interface JingtongScan {

@@ -29,8 +29,14 @@ function nowMs(): number {
   return Date.now();
 }
 
+/** 零宽/方向控制/软连字符等不可见字符:模型输出偶尔夹带,trim 剥不掉,会让空名绕过守卫、展示成「无名牌」 */
+const INVISIBLE_RE = /[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\u00ad]/g;
+function stripInvisible(s: string): string {
+  return s.replace(INVISIBLE_RE, '');
+}
+
 function norm(s: string): string {
-  return s.trim().toLowerCase();
+  return stripInvisible(s).trim().toLowerCase();
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -216,7 +222,7 @@ function cleanNpcDelta(raw: unknown, stored = false): NpcDelta | null {
     const name = scalarText(raw);
     return name ? { name } : null;
   }
-  const name = namedText(raw, ['name', 'npc', 'id']);
+  const name = stripInvisible(namedText(raw, ['name', 'npc', 'id']));
   if (!name) return null;
   const conditionPatch = cleanConditionPatch(raw.conditionPatch);
   const condition = cleanConditionText(raw.condition);
@@ -1431,8 +1437,9 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
     // 年龄锚点用「本叶子的故事内时间」;叶子无时间则退当前状态时间(delta.time 已在上方生效)
     const npcTime = logTime || mem.state.time;
     for (const add of d.npcs.add ?? []) {
-      if (!add?.name?.trim()) continue;
-      const id = npcId(add.name);
+      const addName = stripInvisible(add?.name ?? '').trim();
+      if (!addName) continue;
+      const id = npcId(addName);
       const ex = mem.npcs.find(n => n.id === id);
       if (ex) {
         // 已存在:档案层(gender/title/desc/性格/关系)add 视作补全(仅填空,不覆盖既有);
@@ -1453,7 +1460,7 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
       } else {
         const npc: BaibaiMemory['npcs'][number] = {
           id,
-          name: add.name.trim(),
+          name: addName,
           gender: add.gender?.trim() || undefined,
           relation: add.relation?.trim() || undefined,
           ties: add.ties?.trim() || undefined,
@@ -1471,13 +1478,14 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
       }
     }
     for (const upd of d.npcs.update ?? []) {
-      if (!upd?.name?.trim()) continue;
-      const id = npcId(upd.name);
+      const updName = stripInvisible(upd?.name ?? '').trim();
+      if (!updName) continue;
+      const id = npcId(updName);
       let n = mem.npcs.find(x => x.id === id);
       if (!n) {
         n = {
           id,
-          name: upd.name.trim(),
+          name: updName,
           gender: upd.gender?.trim() || undefined,
           relation: upd.relation?.trim() || undefined,
           ties: upd.ties?.trim() || undefined,

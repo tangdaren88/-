@@ -1282,24 +1282,30 @@ function deleteKnow(k: MemKnowledge) {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 行宽不够时操作钮整体换行,而不是被卡片 overflow:hidden 裁掉 */
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 .bbs-npc-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--bbs-ink);
-  /* 允许收缩 + 单行省略:长名字截断显示(title 悬浮见全名),
-     不把右侧操作钮顶出卡片——卡有 overflow:hidden,溢出即被裁掉点不到 */
+  /* 允许收缩 + 单行省略:长名字截断显示(title 悬浮见全名) */
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 性别小标签:紧凑灰色括注,跟在名字后面 */
+/* 性别小标签:紧凑灰色括注,跟在名字后面。年龄锚点可能很长(如「826岁(外表24岁)(大启天历…)」),
+   必须可收缩省略,否则它会吃光行宽、把名字挤到 0 宽(v1.5.4 修的「无名牌」bug) */
 .bbs-npc-gender {
   font-size: 11px;
   color: var(--bbs-ink-muted);
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .bbs-npc-acts {

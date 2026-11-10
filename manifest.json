@@ -3,10 +3,10 @@
   "loading_order": 100,
   "requires": [],
   "optional": [],
-  "js": "dist/index.js?ver=1.5.1",
+  "js": "dist/index.js?ver=1.5.4",
   "generate_interceptor": "bbs_generateInterceptor",
   "author": "柏柏",
-  "version": "1.5.1",
+  "version": "1.5.4",
   "homePage": "https://github.com/tangdaren88/-",
   "auto_update": false,
   "minimum_client_version": "1.12.13"
