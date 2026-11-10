@@ -179,9 +179,9 @@ export interface InjectionSections {
   /** 角色对主角的了解清单。与其他项不同,它同时管「记录」:关掉就连副 API 的规则一起省掉(零 token),已有清单保留。
    *  不依赖场景注入——在场判定读的是记忆数据,不是注入文本。 */
   knowledge: boolean;
-  /** 镜瞳·世界观总览(自用二改):注入从楼层捕获的世界基底,防世界设定漂移;场景页展示不受此开关影响 */
+  /** 镜瞳·世界观总览(自用二改):注入从楼层捕获的世界基底,防世界设定漂移;镜瞳页展示不受此开关影响。与深度档案/问卷备注共用间隔 */
   worldOverview: boolean;
-  /** 镜瞳·深度档案(自用二改):按 deepProfileInterval 间隔注入 NPC 固定基底档案,防人设漂移 */
+  /** 镜瞳·深度档案(自用二改):与总览/问卷备注共用 deepProfileInterval 间隔注入 NPC 固定基底档案,防人设漂移 */
   deepProfiles: boolean;
   /** 势力格局(自用二改):权力关系树 + 主角对各势力的立场;随剧情 delta 演变 */
   factions: boolean;
@@ -370,8 +370,8 @@ function defaults(): ApiSettings {
     directSummaryInterval: 3,
     summaryOnlyMode: false,
     injection: { sceneFocus: true, lifeDetails: true, protagonist: true, npcs: true, npcAffinity: true, items: true, scenes: true, knowledge: true, worldOverview: true, deepProfiles: true, factions: true, quests: true },
-    /** 镜瞳深度档案的注入间隔:每 N 条可追踪 AI 消息注入一次(1=每轮;开头 2 轮内始终注入,拍摄完马上起作用) */
-    deepProfileInterval: 5,
+    /** 镜瞳注入间隔(总览/深度档案/问卷备注共用):每 N 条可追踪 AI 消息注入一次(1=每轮;开头 2 轮内始终注入,拍摄完马上起作用) */
+    deepProfileInterval: 6,
     keepRecent: 3,
     excludedChars: [],
     excludedWorldNames: [],
@@ -456,11 +456,11 @@ function normalize(raw: unknown): ApiSettings {
     factions: typeof ri.factions === 'boolean' ? ri.factions : true,
     quests: typeof ri.quests === 'boolean' ? ri.quests : true,
   };
-  // 镜瞳深度档案注入间隔:1–20 的整数,缺失/非法回退默认 5
+  // 镜瞳注入间隔(总览/深度档案/问卷备注共用):1–20 的整数,缺失/非法回退默认 6
   merged.deepProfileInterval =
     Number.isFinite(merged.deepProfileInterval) && merged.deepProfileInterval >= 1
       ? Math.min(20, Math.max(1, Math.floor(merged.deepProfileInterval)))
-      : 5;
+      : 6;
   // vector 同为嵌套对象(且内含子对象),逐层兜底,老数据缺字段时回退默认。
   // 注:旧结构曾有 vector.channels + {channel,model};扁平化后弃用,逐角色按 url/key/model 兜底,
   // 老数据缺这些字段会回退空串(等于「未配置」,用户重填一次即可)。

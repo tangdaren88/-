@@ -76,11 +76,12 @@ function trackableAiFloorCount(chat: STMessage[] | null): number {
 }
 
 /**
- * 镜瞳深度档案这一轮是否注入(自用二改):每 N 条可追踪 AI 消息注入一次,省 token;
+ * 镜瞳注入这一轮是否生效(自用二改):每 N 条可追踪 AI 消息注入一次,省 token;
  * 开头 2 轮内始终注入 —— 档案刚拍摄完正是最需要起作用的时候。N=1 等价每轮注入。
+ * 世界观总览 / 深度档案 / 问卷备注三者共用同一个间隔(deepProfileInterval)。
  */
 function shouldInjectProfiles(chat: STMessage[] | null): boolean {
-  const n = Math.min(20, Math.max(1, Math.floor(apiSettings.deepProfileInterval) || 5));
+  const n = Math.min(20, Math.max(1, Math.floor(apiSettings.deepProfileInterval) || 6));
   const count = trackableAiFloorCount(chat);
   return count < 2 || count % n === 0;
 }
@@ -581,12 +582,14 @@ export function buildStateInjectionText(): string {
   const chat = getContext()?.chat ?? null;
 
   // 镜瞳捕获(自用二改):世界观总览置顶 —— 世界基底设定,防轮数一多设定漂移。
-  if (inj.worldOverview && memory.worldOverview.trim()) {
+  // 与深度档案/问卷备注共用同一间隔(deepProfileInterval):开头 2 轮始终注入,之后每 N 轮注入一次。
+  const jingtongRound = shouldInjectProfiles(chat);
+  if (inj.worldOverview && jingtongRound && memory.worldOverview.trim()) {
     st.push(`[世界观总览(世界基底设定,保持设定一致,勿在正文中复述)]\n${memory.worldOverview.trim()}`);
   }
   // 问卷备注(自用二改):玩家申报的人物小传/世界设定备忘 —— 主模型本来只能看到聊天开头的问卷楼,
-  // 轮数一多就被滚出上下文,角色小传随注流失是 OOC 的元凶之一。跟随总览开关注入。
-  if (inj.worldOverview && memory.questionnaireNotes.trim()) {
+  // 轮数一多就被滚出上下文,角色小传随注流失是 OOC 的元凶之一。与总览同开关、同间隔注入。
+  if (inj.worldOverview && jingtongRound && memory.questionnaireNotes.trim()) {
     st.push(`[人物与设定备忘(玩家开局的问卷备注,其中人物/势力设定为既定事实,保持一致,勿在正文中复述)]\n${memory.questionnaireNotes.trim()}`);
   }
 

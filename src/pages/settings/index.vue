@@ -1080,10 +1080,10 @@ function exportPublicApiDocument() {
         <p class="bbs-field-hint">任务系统总开关:主线/支线目标链由剧情摘要自动回报 + 任务页手动增删改,注入主模型防目标线写丢。关闭后:不再注入、AI 也不再回报任务(已有记录保留,重新打开即恢复)。仅摘要模式下仍可控制「是否捕捉任务」。任务页顶部也有此开关。</p>
 
         <label class="bbs-num-row">
-          <span class="bbs-field-label">固定档案注入间隔(轮)</span>
+          <span class="bbs-field-label">镜瞳注入间隔(轮)</span>
           <input v-model.number="apiSettings.deepProfileInterval" class="bbs-input bbs-num" type="number" min="1" max="20" />
         </label>
-        <p class="bbs-field-hint">每隔多少轮 AI 楼层注入一次固定档案,1-20。默认 5。开头两轮始终注入(档案刚拍摄完最需要起作用),之后按间隔补注。开了摘要直提的话,建议和「直提间隔」填同一个数(如都填 3),让档案补注和名册刷新落在同一批真副API楼层上。</p>
+        <p class="bbs-field-hint">每隔多少轮 AI 楼层注入一次镜瞳内容(世界观总览 / 深度档案 / 问卷备注三者共用),1-20,默认 6。开头两轮始终注入(刚拍摄完最需要起作用),之后按间隔补注。开了摘要直提的话,建议和「直提间隔」填同一个数,让补注和名册刷新落在同一批真副API楼层上。</p>
 
         <!-- 不随「仅注入摘要」禁用:此开关同时管记录 -->
         <label class="bbs-switch-row">

@@ -4,7 +4,7 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
-import { buildSceneLocationIndex, editSceneDesc, editWorldOverview, findCurrentSceneId, removeScene, reparentScene, resolveSceneLocationId, sceneId, upsertScene } from '@/memory/apply';
+import { buildSceneLocationIndex, editSceneDesc, findCurrentSceneId, removeScene, reparentScene, resolveSceneLocationId, sceneId, upsertScene } from '@/memory/apply';
 import { buildTravelDraft } from '@/memory/inject';
 import { derivedMeta, memory } from '@/memory/store';
 import { closeBook } from '@/state/ui';
@@ -307,42 +307,7 @@ function confirmTravel() {
   toast('前往地点草稿已填入输入框', 'success');
 }
 
-/* —— 镜瞳世界观总览:手动编辑(覆盖层,写回最新叶子;清空保存=还原楼层原文) —— */
-const overviewEditing = ref(false);
-const overviewDraft = ref('');
-function openOverviewEdit() {
-  overviewDraft.value = memory.worldOverview;
-  overviewEditing.value = true;
-}
-function saveOverviewEdit() {
-  if (!editWorldOverview(overviewDraft.value)) {
-    toast('无法写入总览,请确认当前聊天已有有效摘要。', 'error');
-    return;
-  }
-  overviewEditing.value = false;
-  toast(overviewDraft.value.trim() ? '总览已更新' : '已还原为楼层原文', 'success');
-}
-
-/* —— 总览卡折叠:纯本机 UI 态,按聊天分桶存 localStorage(与地点折叠同款) —— */
-const OVERVIEW_COLLAPSE_KEY = 'bbs.scenes.overviewCollapsed.v1';
-const overviewCollapsed = ref(((): boolean => {
-  try {
-    const all = JSON.parse(localStorage.getItem(OVERVIEW_COLLAPSE_KEY) || '{}');
-    return all[chatKey()] === true;
-  } catch {
-    return false;
-  }
-})());
-function toggleOverviewCollapse() {
-  overviewCollapsed.value = !overviewCollapsed.value;
-  try {
-    const all = JSON.parse(localStorage.getItem(OVERVIEW_COLLAPSE_KEY) || '{}');
-    all[chatKey()] = overviewCollapsed.value;
-    localStorage.setItem(OVERVIEW_COLLAPSE_KEY, JSON.stringify(all));
-  } catch {
-    /* localStorage 不可用时静默 */
-  }
-}
+/* —— 镜瞳世界观总览的展示/编辑已移至独立的「镜瞳」页(v1.6.0) —— */
 </script>
 
 <template>
@@ -361,17 +326,7 @@ function toggleOverviewCollapse() {
     </div>
     <SummaryOnlyNotice subject="地点、场景层级与当前位置" />
 
-    <!-- 镜瞳捕获(自用二改):世界观总览置顶 —— 从楼层【镜瞳·世界观总览】/<jt_anchor> 总览段派生;可手动修正;头部点击折叠 -->
-    <div v-if="memory.worldOverview" class="bbs-world-card">
-      <div class="bbs-world-head clickable" title="点击折叠/展开" @click="toggleOverviewCollapse">
-        <span class="bbs-world-toggle" :class="{ collapsed: overviewCollapsed }"><Icon name="chevron" /></span>
-        <Icon name="scenes" />
-        <span>世界观总览</span>
-        <span class="bbs-world-tag">镜瞳</span>
-        <button class="bbs-item-act bbs-world-edit" type="button" title="编辑总览" @click.stop="openOverviewEdit"><Icon name="edit" /></button>
-      </div>
-      <p v-if="!overviewCollapsed" class="bbs-world-text">{{ memory.worldOverview }}</p>
-    </div>
+    <!-- 镜瞳世界观总览已移至独立「镜瞳」页(v1.6.0),场景页不再展示 -->
 
     <hr class="bbs-rule" />
 
@@ -451,21 +406,7 @@ function toggleOverviewCollapse() {
       </div>
     </ModalMask>
 
-    <!-- 总览编辑弹窗:覆盖层写回最新叶子;清空保存=还原楼层原文 -->
-    <ModalMask :open="overviewEditing" @close="overviewEditing = false">
-      <div class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑世界观总览">
-        <header class="bbs-modal-head">
-          <span class="bbs-modal-title">编辑世界观总览</span>
-          <button class="bbs-item-act" type="button" title="关闭" @click="overviewEditing = false"><Icon name="close" /></button>
-        </header>
-        <p class="bbs-world-hint">楼层原文不变,这里的修改会覆盖拍摄结果并长期生效(注入与展示都用编辑后的版本);清空后保存=还原为楼层原文。</p>
-        <textarea v-model="overviewDraft" class="bbs-input bbs-modal-textarea" rows="14" aria-label="世界观总览内容"></textarea>
-        <footer class="bbs-modal-foot">
-          <button class="bbs-btn" type="button" @click="overviewEditing = false">取消</button>
-          <button class="bbs-btn bbs-btn-primary" type="button" @click="saveOverviewEdit">保存</button>
-        </footer>
-      </div>
-    </ModalMask>
+    <!-- 总览编辑弹窗已移至独立「镜瞳」页(v1.6.0) -->
 
     <!-- 编辑弹窗:Teleport 出滚动容器,见 ModalMask -->
     <ModalMask :open="!!editing" @close="cancelEdit">
@@ -528,68 +469,7 @@ function toggleOverviewCollapse() {
   flex-direction: column;
 }
 
-/* —— 镜瞳世界观总览卡(置顶,派生自楼层正文,不可编辑) —— */
-.bbs-world-card {
-  margin: 10px 0 2px;
-  padding: 9px 12px;
-  border: 1px solid var(--bbs-line);
-  border-left: 3px solid var(--bbs-accent);
-  border-radius: var(--bbs-radius);
-  background: var(--bbs-surface);
-}
-.bbs-world-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--bbs-font-mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--bbs-ink);
-}
-.bbs-world-tag {
-  flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 400;
-  padding: 0 6px;
-  border-radius: var(--bbs-radius-pill);
-  background: var(--bbs-accent-soft);
-  color: var(--bbs-accent);
-}
-.bbs-world-edit {
-  margin-left: auto;
-}
-/* 折叠箭头:展开朝下,折叠朝右(与地点树同款);点击由整行承接 */
-.bbs-world-head.clickable {
-  cursor: pointer;
-}
-.bbs-world-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  color: var(--bbs-ink-muted);
-  font-size: 13px;
-  transition: transform 0.16s var(--bbs-ease), color var(--bbs-dur) var(--bbs-ease);
-}
-.bbs-world-toggle.collapsed {
-  transform: rotate(-90deg);
-}
-.bbs-world-hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--bbs-ink-soft);
-}
-.bbs-world-text {
-  margin: 6px 0 0;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--bbs-ink-soft);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+/* —— 镜瞳世界观总览卡样式已移至独立「镜瞳」页(v1.6.0) —— */
 
 /* —— 嵌套树:层级引导轨是这页的标识元素 —— */
 .bbs-scene-tree {

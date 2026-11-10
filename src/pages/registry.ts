@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import Factions from './factions/index.vue';
 import Items from './items/index.vue';
+import Jingtong from './jingtong/index.vue';
 import Npcs from './npcs/index.vue';
 import Quests from './quests/index.vue';
 import Scenes from './scenes/index.vue';
@@ -26,6 +27,7 @@ export const PAGES: PageDef[] = [
   { id: 'summary', label: '摘要', component: Summary },
   { id: 'items', label: '物品', component: Items },
   { id: 'scenes', label: '场景', component: Scenes },
+  { id: 'jingtong', label: '镜瞳', component: Jingtong },
   { id: 'npcs', label: '角色', component: Npcs },
   { id: 'factions', label: '势力', component: Factions },
   { id: 'quests', label: '任务', component: Quests },

@@ -7,11 +7,11 @@ import { NPC_AFFINITY_FIELDS, affinityLevelFromInput, fmtNpcAffinity } from '@/m
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
-import { classifyNpcPresence, editDeepProfile, editNpc, removeDeepProfile, removeNpc, setNpcFollow, setNpcImportant, setProtagonist, upsertNpc, addLifeDetail, removeLifeDetail, updateLifeDetail, addKnowledge, removeKnowledge, updateKnowledge } from '@/memory/apply';
+import { classifyNpcPresence, editNpc, removeNpc, setNpcFollow, setNpcImportant, setProtagonist, upsertNpc, addLifeDetail, removeLifeDetail, updateLifeDetail, addKnowledge, removeKnowledge, updateKnowledge } from '@/memory/apply';
 import { knowledgeOf, sameKnowledge } from '@/memory/knowledge';
 import { derivedMeta, memory } from '@/memory/store';
 import { ageDisplay } from '@/memory/timeRel';
-import type { JingtongProfile, MemKnowledge, MemLifeDetail, MemNpc } from '@/memory/types';
+import type { MemKnowledge, MemLifeDetail, MemNpc } from '@/memory/types';
 import { getContext } from '@/st/context';
 import { toast } from '@/st/toast';
 import { computed, nextTick, ref } from 'vue';
@@ -336,49 +336,7 @@ function confirmRemove() {
   removing.value = null;
 }
 
-/* —— 镜瞳固定档案:编辑/删除(派生数据的编辑层,写回最新叶子) —— */
-const profileEditing = ref<{ oldName: string; name: string; text: string } | null>(null);
-const profileRemoving = ref<JingtongProfile | null>(null);
-function openProfileEdit(p: JingtongProfile) {
-  profileEditing.value = { oldName: p.name, name: p.name, text: p.text };
-}
-function cancelProfileEdit() {
-  profileEditing.value = null;
-}
-function saveProfileEdit() {
-  const e = profileEditing.value;
-  if (!e || !e.name.trim()) return;
-  if (!editDeepProfile(e.oldName, { name: e.name, text: e.text })) toast('没有可写入的摘要楼层(先补摘一次)', 'error');
-  profileEditing.value = null;
-}
-function confirmRemoveProfile() {
-  if (profileRemoving.value && !removeDeepProfile(profileRemoving.value.name)) toast('没有可写入的摘要楼层(先补摘一次)', 'error');
-  profileRemoving.value = null;
-}
-
-/* —— 固定档案分组折叠:纯本机 UI 态,按聊天分桶存 localStorage(与场景页折叠同款) —— */
-const PROFILE_COLLAPSE_KEY = 'bbs.npcs.profilesCollapsed.v1';
-function chatKey(): string {
-  return getContext()?.getCurrentChatId?.() || '_';
-}
-const profilesCollapsed = ref(((): boolean => {
-  try {
-    const all = JSON.parse(localStorage.getItem(PROFILE_COLLAPSE_KEY) || '{}');
-    return all[chatKey()] === true;
-  } catch {
-    return false;
-  }
-})());
-function toggleProfilesCollapse() {
-  profilesCollapsed.value = !profilesCollapsed.value;
-  try {
-    const all = JSON.parse(localStorage.getItem(PROFILE_COLLAPSE_KEY) || '{}');
-    all[chatKey()] = profilesCollapsed.value;
-    localStorage.setItem(PROFILE_COLLAPSE_KEY, JSON.stringify(all));
-  } catch {
-    /* localStorage 不可用时静默 */
-  }
-}
+/* —— 镜瞳固定档案的展示/编辑已移至独立的「镜瞳」页(v1.6.0) —— */
 
 /* —— 了解清单:角色知道/以为的主角的事(没记的私事 = 该角色不知道) —— */
 function knowCount(n: MemNpc): number {
@@ -565,30 +523,7 @@ function deleteKnow(k: MemKnowledge) {
       </article>
     </div>
 
-    <!-- 镜瞳捕获(自用二改):固定档案 —— 从楼层「镜瞳·深度档案」派生的客观基底,不受摘要重总结影响;分组头点击折叠 -->
-    <div v-if="memory.deepProfiles.length" class="bbs-npc-group">
-      <div class="bbs-npc-grouphead clickable" title="点击折叠/展开" @click="toggleProfilesCollapse">
-        <span class="bbs-profile-toggle" :class="{ collapsed: profilesCollapsed }"><Icon name="chevron" /></span>
-        <span class="bbs-npc-grouptag is-main"><Icon name="characters" />固定档案</span>
-        <span v-if="profilesCollapsed" class="bbs-profile-count">{{ memory.deepProfiles.length }}</span>
-        <span v-else class="bbs-npc-grouphint">镜瞳拍摄的客观基底(已剔除性格/印象等易变项);按设置页间隔注入主模型,防人设漂移;可手动修正,编辑/删除写入最新摘要</span>
-      </div>
-      <div v-if="!profilesCollapsed" class="bbs-npc-list">
-        <article v-for="p in memory.deepProfiles" :key="p.name" class="bbs-npc is-present">
-          <div class="bbs-npc-body">
-            <div class="bbs-npc-head">
-              <span class="bbs-npc-name" :title="p.name">{{ p.name }}</span>
-              <span class="bbs-npc-gender" :title="`捕获于第 ${p.floor + 1} 楼`">镜瞳</span>
-              <span class="bbs-npc-acts">
-                <button class="bbs-item-act" type="button" title="编辑" @click="openProfileEdit(p)"><Icon name="edit" /></button>
-                <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="profileRemoving = p"><Icon name="trash" /></button>
-              </span>
-            </div>
-            <pre class="bbs-npc-profile">{{ p.text }}</pre>
-          </div>
-        </article>
-      </div>
-    </div>
+    <!-- 镜瞳固定档案已移至独立「镜瞳」页(v1.6.0),角色页不再展示 -->
 
     <div v-if="memory.npcs.length" class="bbs-npc-groups">
       <!-- 主要角色:核心主演,永远全量发送。这里突出「即时状态面板」(着装/状态/所在),弱化身份档案 -->
@@ -1075,40 +1010,7 @@ function deleteKnow(k: MemKnowledge) {
       </div>
     </ModalMask>
 
-    <!-- 镜瞳固定档案编辑弹窗:改名/改文,按原名写回最新摘要,重放时套用在楼层拍摄结果上 -->
-    <ModalMask :open="!!profileEditing" @close="cancelProfileEdit">
-      <div v-if="profileEditing" class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑固定档案">
-        <header class="bbs-modal-head">
-          <span class="bbs-modal-title">编辑固定档案</span>
-          <button class="bbs-item-act" type="button" title="关闭" @click="cancelProfileEdit"><Icon name="close" /></button>
-        </header>
-        <label class="bbs-modal-field">
-          <span class="bbs-modal-label">名字</span>
-          <input v-model="profileEditing.name" class="bbs-input" type="text" placeholder="角色名" />
-        </label>
-        <label class="bbs-modal-field">
-          <span class="bbs-modal-label">档案正文(客观固定设定;楼层原文不变,这里的修改会覆盖拍摄结果并长期生效)</span>
-          <textarea v-model="profileEditing.text" class="bbs-input bbs-modal-textarea" rows="8" placeholder="每行一条,如:姓名：周砚清"></textarea>
-        </label>
-        <footer class="bbs-modal-foot">
-          <button class="bbs-btn" type="button" @click="cancelProfileEdit">取消</button>
-          <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!profileEditing.name.trim()" @click="saveProfileEdit">保存</button>
-        </footer>
-      </div>
-    </ModalMask>
-
-    <ConfirmDialog
-      :open="!!profileRemoving"
-      title="删除固定档案"
-      tone="danger"
-      confirm-text="删除"
-      confirm-icon="trash"
-      @update:open="v => { if (!v) profileRemoving = null; }"
-      @confirm="confirmRemoveProfile"
-      @cancel="profileRemoving = null"
-    >
-      删除「{{ profileRemoving?.name }}」的镜瞳固定档案。此后楼层再拍到同名档案也不会恢复(可重新拍摄覆盖)。
-    </ConfirmDialog>
+    <!-- 镜瞳固定档案编辑/删除弹窗已移至独立「镜瞳」页(v1.6.0) -->
 
     <ConfirmDialog
       :open="!!removing"
@@ -1450,49 +1352,7 @@ function deleteKnow(k: MemKnowledge) {
   }
 }
 
-/* 镜瞳固定档案正文:逐行原样展示(等宽小字,pre-wrap 保留换行) */
-.bbs-npc-profile {
-  margin: 6px 0 0;
-  padding: 8px 10px;
-  border: 1px solid var(--bbs-line);
-  border-radius: var(--bbs-radius-sm);
-  background: var(--bbs-surface-2);
-  font-family: var(--bbs-font-mono);
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--bbs-ink-soft);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* 固定档案分组折叠箭头:展开朝下,折叠朝右(与场景页同款);点击由分组头承接 */
-.bbs-npc-grouphead.clickable {
-  cursor: pointer;
-}
-.bbs-profile-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  color: var(--bbs-ink-muted);
-  font-size: 13px;
-  transition: transform 0.16s var(--bbs-ease), color var(--bbs-dur) var(--bbs-ease);
-}
-.bbs-profile-toggle.collapsed {
-  transform: rotate(-90deg);
-}
-/* 折叠态:显示档案条数 */
-.bbs-profile-count {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-family: var(--bbs-font-mono);
-  color: var(--bbs-ink-muted);
-  padding: 0 6px;
-  border-radius: var(--bbs-radius-pill);
-  background: var(--bbs-surface-2);
-}
+/* 镜瞳固定档案的展示样式已移至独立「镜瞳」页(v1.6.0) */
 
 /* 行内操作按钮:复刻 items 页(scoped 不继承,重声明同款) */
 .bbs-item-act {
