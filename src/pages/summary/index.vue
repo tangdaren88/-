@@ -167,12 +167,17 @@ function cancelPlanEdit() {
 function savePlanEdit() {
   const e = editingPlan.value;
   if (!e || !e.content.trim()) return;
-  editPlan(e.id, {
+  const ok = editPlan(e.id, {
     content: e.content,
     createdTime: e.createdTime,
     // 目标时间仅计划有意义;悬念保持空
     targetTime: e.kind === 'plan' ? e.targetTime : '',
   });
+  if (!ok) {
+    // 静默失败会让人以为保存成功;无有效叶子时明确提示
+    toast('没有可写入的摘要楼层(先补摘一次)', 'warning');
+    return;
+  }
   refreshInjection();
   editingPlan.value = null;
 }

@@ -148,3 +148,32 @@ describe('手动编辑计划不被后续楼层的 AI update 盖掉', () => {
     expect(getLeaf(ctx.chat[0])!.delta.plans?.update).toBeUndefined();
   });
 });
+
+describe('问卷种子计划/悬念可编辑(v1.5.2)', () => {
+  // 种子 id(plan:qs:*)不在任何叶子的 add 列表里;编辑走 update 操作写入最新叶子
+  const QS_TEXT = [
+    '【一见钟情模拟器 · 问卷回执】',
+    '长远目标：不被炮灰掉',
+    '秘密：1️⃣资助人的真实身份',
+  ].join('\n');
+  it('plan:qs:* 种子编辑后内存与重放一致,update 落在最新叶子', () => {
+    const qs: STMessage = { name: '艾琳', is_user: false, is_system: false, mes: QS_TEXT } as STMessage;
+    const ctx = useChat([qs, message({ plans: { add: [{ kind: 'plan', content: '普通计划' }] } })]);
+    expect(memory.plans.some(p => p.id === 'plan:qs:secret:0')).toBe(true);
+
+    expect(editPlan('plan:qs:secret:0', { content: '改后的秘密' })).toBe(true);
+    expect(memory.plans.find(p => p.id === 'plan:qs:secret:0')?.content).toBe('改后的秘密');
+
+    const replayed = deriveMemory(ctx.chat).plans.find(p => p.id === 'plan:qs:secret:0');
+    expect(replayed?.content).toBe('改后的秘密');
+    expect(getLeaf(ctx.chat[1])!.delta.plans?.update?.[0]?.id).toBe('plan:qs:secret:0');
+    // AI 普通计划不受影响
+    expect(memory.plans.find(p => p.id?.startsWith('plan:manual-'))?.content).toBe('普通计划');
+  });
+
+  it('没有有效叶子时返回 false(界面据此 toast,不再静默)', () => {
+    const qs: STMessage = { name: '艾琳', is_user: false, is_system: false, mes: QS_TEXT } as STMessage;
+    useChat([qs]);
+    expect(editPlan('plan:qs:secret:0', { content: '改后的秘密' })).toBe(false);
+  });
+});

@@ -2857,7 +2857,17 @@ export function editPlan(
   patch: { content?: string; createdTime?: string; targetTime?: string },
 ): boolean {
   const m = planIdStr.match(/^plan:(.+)#(\d+)$/);
-  if (!m) return false;
+  if (!m) {
+    // 非「叶子#序号」id(问卷种子 plan:qs:goal/secret:* 等):种子不在任何叶子的 add 列表里,
+    // 没有原条目可改;走重放层 update 操作 —— update 按 id 直配 mem.plans,
+    // 种子在 deriveMemory 叶子循环前入列,任何后续楼层的 update 都能命中,重放稳定。
+    // 注:update 操作不携带 createdTime(种子无创建楼层语义,保持原值)。
+    const upd: PlanUpdateItem = { id: planIdStr };
+    if (typeof patch.content === 'string' && patch.content.trim()) upd.content = patch.content.trim();
+    if (patch.targetTime !== undefined) upd.targetTime = patch.targetTime.trim();
+    if (upd.content === undefined && upd.targetTime === undefined) return false;
+    return appendOpToLatestLeaf({ plans: { update: [upd] } });
+  }
   const leafId = m[1];
   const addIdx = Number(m[2]);
   const chat = getContext()?.chat;
