@@ -207,42 +207,42 @@ function confirmRemoveFaction() {
         <p class="bbs-npc-mainhint">权力格局:首轮世界观总览「权力与势力」自动捕捉,随剧情演化(新立/改隶/覆灭);点 + 添加顶级势力,点卡片上的 + 添加其子势力,与{{ protagonistName }}的关系挂在各势力名下。</p>
         <div v-if="!factionsCollapsed" class="bbs-npc-list">
           <template v-if="factionRows.length">
-            <article
-              v-for="row in factionRows"
-              :key="row.f.id"
-              class="bbs-npc is-present"
-              :class="{ 'is-child': row.depth > 0 }"
-            >
-              <!-- 层级辅助线:与场景页同款,每级一条细竖轨,贯穿卡片与行间隙 -->
-              <span v-for="d in Math.min(row.depth, 4)" :key="d" class="bbs-faction-rail" aria-hidden="true"></span>
-              <div class="bbs-npc-body">
-                <div class="bbs-npc-head">
-                  <button
-                    v-if="row.f.children.length"
-                    class="bbs-faction-toggle"
-                    :class="{ collapsed: collapsedNodes.has(row.f.id) }"
-                    type="button"
-                    :title="collapsedNodes.has(row.f.id) ? `展开 ${row.f.children.length} 个子势力` : '收起子势力'"
-                    :aria-label="collapsedNodes.has(row.f.id) ? '展开子势力' : '收起子势力'"
-                    @click.stop="toggleNodeCollapse(row.f.id)"
-                  ><Icon name="chevron" /></button>
-                  <span class="bbs-npc-name" :title="row.f.name">{{ row.f.name }}</span>
-                  <span v-if="row.f.children.length && collapsedNodes.has(row.f.id)" class="bbs-faction-childcount" :title="`已收起 ${row.f.children.length} 个子势力`">{{ row.f.children.length }}</span>
-                  <span v-if="row.depth > 0 && row.f.parent" class="bbs-npc-gender" :title="`子势力 · 隶属 ${row.f.parent}`">子势力</span>
-                  <span class="bbs-npc-acts">
-                    <button class="bbs-item-act" type="button" :title="`在 ${row.f.name} 下添加子势力`" @click="openFactionAdd(row.f.name)"><Icon name="plus" /></button>
-                    <button class="bbs-item-act" type="button" title="编辑" @click="openFactionEdit(row.f)"><Icon name="edit" /></button>
-                    <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="factionRemoving = row.f"><Icon name="trash" /></button>
-                  </span>
+            <!-- 行容器:轨道槽在卡片外侧(与场景页完全同构),竖线跑在行背景里而不是卡内 -->
+            <div v-for="row in factionRows" :key="row.f.id" class="bbs-faction-row">
+              <span v-for="d in row.depth" :key="d" class="bbs-faction-rail" aria-hidden="true"></span>
+              <article
+                class="bbs-npc is-present"
+                :class="{ 'is-child': row.depth > 0 }"
+              >
+                <div class="bbs-npc-body">
+                  <div class="bbs-npc-head">
+                    <button
+                      v-if="row.f.children.length"
+                      class="bbs-faction-toggle"
+                      :class="{ collapsed: collapsedNodes.has(row.f.id) }"
+                      type="button"
+                      :title="collapsedNodes.has(row.f.id) ? `展开 ${row.f.children.length} 个子势力` : '收起子势力'"
+                      :aria-label="collapsedNodes.has(row.f.id) ? '展开子势力' : '收起子势力'"
+                      @click.stop="toggleNodeCollapse(row.f.id)"
+                    ><Icon name="chevron" /></button>
+                    <span class="bbs-npc-name" :title="row.f.name">{{ row.f.name }}</span>
+                    <span v-if="row.f.children.length && collapsedNodes.has(row.f.id)" class="bbs-faction-childcount" :title="`已收起 ${row.f.children.length} 个子势力`">{{ row.f.children.length }}</span>
+                    <span v-if="row.depth > 0 && row.f.parent" class="bbs-npc-gender" :title="`子势力 · 隶属 ${row.f.parent}`">子势力</span>
+                    <span class="bbs-npc-acts">
+                      <button class="bbs-item-act" type="button" :title="`在 ${row.f.name} 下添加子势力`" @click="openFactionAdd(row.f.name)"><Icon name="plus" /></button>
+                      <button class="bbs-item-act" type="button" title="编辑" @click="openFactionEdit(row.f)"><Icon name="edit" /></button>
+                      <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="factionRemoving = row.f"><Icon name="trash" /></button>
+                    </span>
+                  </div>
+                  <dl v-if="row.f.desc || row.f.members?.length || row.f.userRelation" class="bbs-npc-fields">
+                    <div v-if="row.f.desc" class="bbs-npc-field f-desc"><dt title="权柄 / 资源 / 影响范围">权力</dt><dd>{{ row.f.desc }}</dd></div>
+                    <div v-if="row.f.members?.length" class="bbs-npc-field"><dt>成员</dt><dd>{{ row.f.members.join('、') }}</dd></div>
+                    <div v-if="row.f.userRelation" class="bbs-npc-field f-rel"><dt>与{{ protagonistName }}</dt><dd>{{ row.f.userRelation }}</dd></div>
+                  </dl>
+                  <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充权柄、成员与和主角的关系。</p>
                 </div>
-                <dl v-if="row.f.desc || row.f.members?.length || row.f.userRelation" class="bbs-npc-fields">
-                  <div v-if="row.f.desc" class="bbs-npc-field f-desc"><dt title="权柄 / 资源 / 影响范围">权力</dt><dd>{{ row.f.desc }}</dd></div>
-                  <div v-if="row.f.members?.length" class="bbs-npc-field"><dt>成员</dt><dd>{{ row.f.members.join('、') }}</dd></div>
-                  <div v-if="row.f.userRelation" class="bbs-npc-field f-rel"><dt>与{{ protagonistName }}</dt><dd>{{ row.f.userRelation }}</dd></div>
-                </dl>
-                <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充权柄、成员与和主角的关系。</p>
-              </div>
-            </article>
+              </article>
+            </div>
           </template>
           <p v-else class="bbs-npc-mainhint">暂无势力。首轮世界观总览出现「权力与势力」后会自动捕捉;也可点上方 + 手动添加。</p>
         </div>
@@ -455,11 +455,15 @@ function confirmRemoveFaction() {
 .bbs-faction-toggle.collapsed {
   transform: rotate(-90deg);
 }
-/* 层级辅助线(与场景页同款):子势力卡片改为 flex 排版,每级一条 14px 竖轨槽,
-   槽内一条 hairline 竖线上下各探出 6px,跨过行间隙连成贯穿线 */
-.bbs-npc.is-child {
+/* 层级辅助线(与场景页完全同构):行容器 flex,轨道槽在卡片外侧,槽内一条 hairline 竖线;
+   势力列表行距 8px,竖线上下各探出 8px 跨过行间隙连成贯穿线 */
+.bbs-faction-row {
   display: flex;
   align-items: stretch;
+}
+.bbs-faction-row .bbs-npc {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .bbs-faction-rail {
   flex: 0 0 14px;
@@ -469,14 +473,10 @@ function confirmRemoveFaction() {
   content: '';
   position: absolute;
   left: 6px;
-  top: -6px;
-  bottom: -6px;
+  top: -8px;
+  bottom: -8px;
   width: 1px;
   background: var(--bbs-line);
-}
-.bbs-npc.is-child .bbs-npc-body {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 /* 收起态的子势力计数:小胶囊跟在名字后 */
 .bbs-faction-childcount {
