@@ -4,8 +4,9 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
-import { editQuest, removeQuest, upsertQuest } from '@/memory/apply';
+import { editQuest, importQuestOutline, removeQuest, upsertQuest } from '@/memory/apply';
 import { buildQuestDraft } from '@/memory/inject';
+import { parseQuestOutline } from '@/memory/questOutline';
 import { apiSettings } from '@/api/settings';
 import { derivedMeta, memory } from '@/memory/store';
 import { closeBook } from '@/state/ui';
@@ -303,6 +304,55 @@ function confirmQuestImport() {
   else toast('全部为重复任务名,未导入', 'error');
   questImporting.value = null;
 }
+
+/* —— 整本大纲导入:把 AI 拆好的「主线/支线 + 子任务」整段粘进来,一次建好整棵树 —— */
+const outlineImporting = ref<string | null>(null); // null=弹窗关闭
+const outlineParsed = computed(() => (outlineImporting.value ? parseQuestOutline(outlineImporting.value) : []));
+const outlineParents = computed(() => outlineParsed.value.filter(q => !q.parent));
+const outlineChildCount = computed(() => outlineParsed.value.filter(q => !!q.parent).length);
+const outlineDupCount = computed(() => {
+  const exist = new Set(memory.quests.map(q => q.name.trim().toLowerCase()));
+  return outlineParsed.value.filter(q => exist.has(q.name.trim().toLowerCase())).length;
+});
+
+function openOutlineImport() {
+  if (!hasLeaf.value) {
+    toast('没有可写入的摘要楼层(先补摘一次)', 'error');
+    return;
+  }
+  outlineImporting.value = '';
+}
+function cancelOutlineImport() {
+  outlineImporting.value = null;
+}
+function confirmOutlineImport() {
+  const list = outlineParsed.value;
+  if (!list.length) {
+    toast('没有识别到任务,检查一下格式', 'error');
+    return;
+  }
+  // 与现有任务重名跳过(写入也是按名匹配);同批内重名只留第一条
+  const exist = new Set(memory.quests.map(q => q.name.trim().toLowerCase()));
+  const fresh = list.filter(q => {
+    const k = q.name.trim().toLowerCase();
+    if (exist.has(k)) return false;
+    exist.add(k);
+    return true;
+  });
+  const skipped = list.length - fresh.length;
+  if (!fresh.length) {
+    toast('全部与现有任务重名,未导入', 'error');
+    outlineImporting.value = null;
+    return;
+  }
+  if (!importQuestOutline(fresh)) {
+    toast('没有可写入的摘要楼层(先补摘一次)', 'error');
+    return;
+  }
+  const parents = fresh.filter(q => !q.parent).length;
+  toast(`已导入 ${parents} 条任务、${fresh.length - parents} 个子任务${skipped ? `,跳过 ${skipped} 条重复` : ''}`);
+  outlineImporting.value = null;
+}
 </script>
 
 <template>
@@ -311,6 +361,19 @@ function confirmQuestImport() {
 
     <div class="bbs-quests-wrap">
       <div v-if="memory.quests.length || hasLeaf">
+        <!-- 整本大纲导入:最原始的一整段粘贴,自动拆成主线/支线 + 子任务树 -->
+        <div class="bbs-quest-outline">
+          <div class="bbs-quest-outline-head">
+            <h2 class="bbs-faction-title">整本大纲</h2>
+            <button class="bbs-btn bbs-btn-primary bbs-outline-btn" type="button" @click="openOutlineImport">
+              <Icon name="download" /> 粘贴导入
+            </button>
+          </div>
+          <p class="bbs-quest-outline-hint">
+            把 AI 拆好的整本任务大纲整段粘进来(如「主线任务A：考入书院 子任务1、子任务2；支线任务B：…」),自动拆成主线/支线及其子任务,一次性建好整棵树。
+          </p>
+        </div>
+
         <label class="bbs-quest-switch" title="任务系统总开关(与设置页「任务」开关同步)">
           <input v-model="apiSettings.injection.quests" type="checkbox" class="bbs-checkbox" />
           <span>
@@ -478,6 +541,43 @@ function confirmQuestImport() {
           </div>
         </div>
       </div>
+
+      <!-- 整本大纲导入弹窗:一整段粘贴 + 实时预览解析结果 -->
+      <ModalMask :open="outlineImporting !== null" @close="cancelOutlineImport">
+        <div v-if="outlineImporting !== null" class="bbs-modal" role="dialog" aria-modal="true" aria-label="整本大纲导入">
+          <header class="bbs-modal-head">
+            <span class="bbs-modal-title">整本大纲导入</span>
+            <button class="bbs-item-act" type="button" title="关闭" @click="cancelOutlineImport"><Icon name="close" /></button>
+          </header>
+          <label class="bbs-modal-field">
+            <span class="bbs-modal-label">任务大纲原文(直接粘贴,不用先整理格式)</span>
+            <textarea
+              v-model="outlineImporting"
+              class="bbs-input bbs-modal-textarea"
+              rows="10"
+              placeholder="主线任务A：考入天枢书院&#10;子任务1：报名&#10;子任务2：初试&#10;主线任务B：南海历练&#10;子任务1：登船南下&#10;支线任务C：寻找旧友&#10;子任务1：打听下落"
+            ></textarea>
+          </label>
+          <div v-if="outlineParsed.length" class="bbs-outline-preview">
+            <p class="bbs-outline-sum">
+              识别到 {{ outlineParents.length }} 条任务、{{ outlineChildCount }} 个子任务<template v-if="outlineDupCount">,其中 {{ outlineDupCount }} 条与现有任务重名将跳过</template>
+            </p>
+            <ul class="bbs-outline-list">
+              <li v-for="(q, i) in outlineParsed.slice(0, 12)" :key="i" :class="{ 'is-child': !!q.parent }">
+                <span class="bbs-outline-kind" :class="q.kind">{{ q.kind === 'main' ? '主线' : '支线' }}</span>
+                <span class="bbs-outline-name">{{ q.name }}</span>
+                <em v-if="q.parent" class="bbs-outline-parent">隶属 {{ q.parent }}</em>
+              </li>
+            </ul>
+            <p v-if="outlineParsed.length > 12" class="bbs-outline-sum">…另有 {{ outlineParsed.length - 12 }} 条,导入后可在列表里查看</p>
+          </div>
+          <p v-else class="bbs-import-hint">还没识别到任务:需要出现「主线任务」「支线任务」这类标题,或逐行写任务名。</p>
+          <footer class="bbs-modal-foot">
+            <button class="bbs-btn" type="button" @click="cancelOutlineImport">取消</button>
+            <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!outlineParsed.length" @click="confirmOutlineImport">导入</button>
+          </footer>
+        </div>
+      </ModalMask>
 
       <!-- 任务 添加/编辑弹窗:名/类型/目标描述/当前进展/关联势力/状态 -->
       <ModalMask :open="!!questEditing" @close="cancelQuestEdit">
@@ -685,6 +785,91 @@ function confirmQuestImport() {
   border-radius: var(--bbs-radius-pill);
   padding: 1px 9px;
   font-variant-numeric: tabular-nums;
+}
+
+/* —— 整本大纲导入:页顶一张安静的入口卡 —— */
+.bbs-quest-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  margin: 2px 0 10px;
+  border: 1px dashed var(--bbs-line);
+  border-radius: var(--bbs-radius);
+}
+.bbs-quest-outline-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bbs-quest-outline-head .bbs-outline-btn {
+  margin-left: auto;
+}
+.bbs-quest-outline-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--bbs-ink-muted);
+}
+/* 解析预览 */
+.bbs-outline-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bbs-outline-sum {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--bbs-ink-muted);
+}
+.bbs-outline-list {
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--bbs-line);
+  border-radius: var(--bbs-radius);
+  background: var(--bbs-surface-2);
+}
+.bbs-outline-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--bbs-ink);
+}
+.bbs-outline-list li.is-child {
+  padding-left: 14px;
+  color: var(--bbs-ink-soft);
+}
+.bbs-outline-kind {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: var(--bbs-radius-pill);
+  background: var(--bbs-surface);
+  color: var(--bbs-ink-muted);
+}
+.bbs-outline-kind.main {
+  background: var(--bbs-accent-soft);
+  color: var(--bbs-accent);
+}
+.bbs-outline-name {
+  min-width: 0;
+  word-break: break-word;
+}
+.bbs-outline-parent {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--bbs-ink-muted);
 }
 
 .bbs-npc-list {

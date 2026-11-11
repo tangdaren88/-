@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveMemory } from './apply';
 import { buildQuestDraft } from './inject';
+import { parseQuestOutline } from './questOutline';
 import type { MemQuest } from './types';
 import type { STMessage } from '@/st/context';
 
@@ -95,5 +96,46 @@ describe('任务子任务树(重放层)', () => {
     expect(mem.quests.some(q => q.name === '东海历练')).toBe(true);
     expect(mem.quests.find(q => q.name === '收集船票')?.parent).toBe('东海历练');
     expect(mem.quests.find(q => q.name === '打探航线')?.parent).toBe('东海历练');
+  });
+});
+
+describe('整本大纲解析(parseQuestOutline)', () => {
+  it('多行缩进式:主线下挂子任务,支线继承支线类型', () => {
+    const outline = [
+      '主线任务A：考入天枢书院',
+      '子任务1：报名',
+      '子任务2：初试',
+      '支线任务C：寻找旧友',
+      '子任务1：打听下落',
+    ].join('\n');
+    const list = parseQuestOutline(outline);
+    expect(list.map(q => q.name)).toEqual(['考入天枢书院', '报名', '初试', '寻找旧友', '打听下落']);
+    expect(list[0]).toMatchObject({ kind: 'main' });
+    expect(list[1]).toMatchObject({ kind: 'main', parent: '考入天枢书院' });
+    expect(list[3]).toMatchObject({ kind: 'side' });
+    expect(list[4]).toMatchObject({ kind: 'side', parent: '寻找旧友' });
+  });
+
+  it('单行连写:标记间自动断行,各自成为独立任务', () => {
+    const list = parseQuestOutline('主线任务A：考入书院：子任务1：报名、子任务2：初试：主线任务B：南海历练');
+    const names = list.map(q => q.name);
+    expect(names).toContain('考入书院');
+    expect(names).toContain('报名');
+    expect(names).toContain('初试');
+    expect(names).toContain('南海历练');
+    // 南海历练在第二个标记后,不能挂到第一个任务名下
+    expect(list.find(q => q.name === '南海历练')?.parent).toBeUndefined();
+  });
+
+  it('空标题式:任务名取下一行,缩进行作子任务', () => {
+    const list = parseQuestOutline(['【主线任务】', '1. 考入书院', '  - 报名', '  - 初试'].join('\n'));
+    expect(list.map(q => q.name)).toEqual(['考入书院', '报名', '初试']);
+    expect(list[1].parent).toBe('考入书院');
+  });
+
+  it('无任何标记时退化为逐行主线任务;整批重名只留一条', () => {
+    const list = parseQuestOutline('考学校\n历练\n飞升\n考学校');
+    expect(list.map(q => q.name)).toEqual(['考学校', '历练', '飞升']);
+    expect(list.every(q => q.kind === 'main' && !q.parent)).toBe(true);
   });
 });

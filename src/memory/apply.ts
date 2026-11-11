@@ -2699,6 +2699,24 @@ export function editQuest(
   return appendOpToLatestLeaf({ quests: { update: [{ name: newName, ...fields }] } });
 }
 
+/**
+ * 整本大纲导入:一次 op 写入一批任务(父在前、子在后,child.parent 引用父任务名)。
+ * 条目由 questOutline.parseQuestOutline 解析,调用方负责去重;无有效叶子或没有条目返回 false。
+ */
+export function importQuestOutline(
+  entries: { name: string; kind: 'main' | 'side'; parent?: string }[],
+): boolean {
+  const adds = entries
+    .map(e => ({
+      name: e.name.trim(),
+      kind: e.kind,
+      parent: e.parent?.trim() || undefined,
+    }))
+    .filter(e => !!e.name);
+  if (!adds.length) return false;
+  return appendOpToLatestLeaf({ quests: { add: adds } });
+}
+
 /** 手动删除一个任务(硬删;归档只是状态,删除才是移除)。 */
 export function removeQuest(name: string): boolean {
   const nm = name.trim();
