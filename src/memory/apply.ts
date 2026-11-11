@@ -304,6 +304,7 @@ function cleanQuestDelta(raw: unknown): QuestDelta | null {
     status: statusRaw === 'done' || statusRaw === 'completed' || statusRaw === '完成' ? 'done' : statusRaw === 'failed' ? 'failed' : statusRaw === 'active' ? 'active' : undefined,
     finishedTime: optText(raw.finishedTime),
     faction: patchText(raw.faction),
+    parent: patchText(raw.parent),
   };
 }
 
@@ -1570,6 +1571,7 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
       if (src.status) q.status = src.status;
       if (src.finishedTime) q.finishedTime = src.finishedTime.trim();
       if (typeof src.faction === 'string') q.faction = src.faction.trim() || undefined;
+      if (typeof src.parent === 'string') q.parent = src.parent.trim() || undefined;
       q.updatedAt = t;
     };
     for (const add of d.quests.add ?? []) {
@@ -1584,6 +1586,7 @@ function applyStoredDeltaTo(mem: BaibaiMemory, d: StoredDelta, leaf: { id: strin
         if (add.status && ex.status === 'active') ex.status = add.status;
         if (add.finishedTime && !ex.finishedTime) ex.finishedTime = add.finishedTime.trim();
         if (add.faction && !ex.faction) ex.faction = add.faction.trim();
+        if (add.parent && !ex.parent) ex.parent = add.parent.trim();
         ex.updatedAt = t;
       } else {
         const q: MemQuest = { id, name: add.name.trim(), kind: add.kind ?? 'main', status: add.status ?? 'active', createdAt: t, updatedAt: t };
@@ -2626,6 +2629,7 @@ export function upsertQuest(fields: {
   desc?: string;
   status?: 'active' | 'done' | 'failed';
   faction?: string;
+  parent?: string;
 }): boolean {
   const name = fields.name.trim();
   if (!name) return false;
@@ -2637,6 +2641,7 @@ export function upsertQuest(fields: {
         desc: fields.desc?.trim() || undefined,
         status: fields.status && fields.status !== 'active' ? fields.status : undefined,
         faction: fields.faction?.trim() || undefined,
+        parent: fields.parent?.trim() || undefined,
       }],
     },
   });
@@ -2644,8 +2649,9 @@ export function upsertQuest(fields: {
 
 /**
  * 手动编辑一个任务,与 editFaction 同范式:
- *  - 改名:任务 id 按规范化名确定,改名等于换 id → remove(旧名) + add(新名,带全字段)。
- *  - 仅改字段:update(按原名匹配;desc/progress/faction 空串=清除,status 显式给才动)。
+ *  - 改名:任务 id 按规范化名确定,改名等于换 id → remove(旧名) + add(新名,带全字段);
+ *    同时把子任务的 parent 级联改指新名(update 逐个改,子任务数据不动)。
+ *  - 仅改字段:update(按原名匹配;desc/progress/faction/parent 空串=清除,status 显式给才动)。
  * 未显式给的字段从旧任务继承(改名不丢数据)。
  */
 export function editQuest(
@@ -2658,6 +2664,7 @@ export function editQuest(
     status?: 'active' | 'done' | 'failed';
     finishedTime?: string;
     faction?: string;
+    parent?: string;
   },
 ): boolean {
   const newName = patch.name?.trim() || oldName;
@@ -2670,6 +2677,7 @@ export function editQuest(
     ? (prev?.finishedTime ?? undefined)
     : prev?.finishedTime;
   const faction = patch.faction !== undefined ? patch.faction.trim() : (prev?.faction ?? '');
+  const parent = patch.parent !== undefined ? patch.parent.trim() : (prev?.parent ?? '');
   const fields = {
     kind,
     desc,
@@ -2677,10 +2685,15 @@ export function editQuest(
     status: status !== 'active' ? status : undefined,
     finishedTime,
     faction,
+    parent,
   };
   if (norm(newName) !== norm(oldName)) {
+    // 父任务改名:子任务 parent 挂的是旧名,逐个 update 级联改指新名(重放层按名匹配,顺序无关)
+    const childUpdates = memory.quests
+      .filter(q => norm(q.parent ?? '') === norm(oldName))
+      .map(q => ({ name: q.name, parent: newName }));
     return appendOpToLatestLeaf({
-      quests: { remove: [oldName], add: [{ name: newName, ...fields }] },
+      quests: { remove: [oldName], add: [{ name: newName, ...fields }], update: childUpdates },
     });
   }
   return appendOpToLatestLeaf({ quests: { update: [{ name: newName, ...fields }] } });

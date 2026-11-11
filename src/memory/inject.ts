@@ -22,7 +22,7 @@ import { memory } from './store';
 import { compactTimeLabel, formatRange, latestStoryTime, splitTimeLabel, timeTagPrompt } from './timeTag';
 import { relativeTimeLabel, weekdayLabel, ageDisplay, calculateRelativeDays } from './timeRel';
 import { selectViewNodes, selectLifeDetailsForInjection, type ViewNode } from './select';
-import type { LeafExtra, MemItem, MemLifeDetail, MemNpc, MemProtagonist, MemScene, MemSummary, SceneFocus } from './types';
+import type { LeafExtra, MemItem, MemLifeDetail, MemNpc, MemProtagonist, MemQuest, MemScene, MemSummary, SceneFocus } from './types';
 
 // 摘要页列表复用同一套选择逻辑,经此 re-export(纯算法在 select.ts,零依赖、可单测)
 export { selectViewNodes, type ViewNode };
@@ -562,6 +562,25 @@ export function buildTravelDraft(target: MemScene): string {
   return [
     `前往「${destination}」，请从抵达后继续剧情。`,
     `以下是抵达该地点后的相关记忆，请保持设定一致:\n${blocks.join('\n')}`,
+  ].join('\n\n');
+}
+
+/**
+ * 为任务页的「推进草稿」生成可编辑的用户草稿(纯模板拼装,不调 API、不改记忆)。
+ * 思路同「前往地点」:把任务的目标/进展/关联势力交给主模型,要求以剧情方式自然引出
+ * 任务的启动或推进契机(相关方发布、NPC 提及或邀请 {{user}} 参与),而不是复述任务描述。
+ * {{user}} 保留宏字面量,由 ST 在发送时替换。
+ */
+export function buildQuestDraft(quest: MemQuest): string {
+  const kindLabel = quest.kind === 'side' ? '支线任务' : '主线任务';
+  const lines: string[] = [];
+  if (quest.desc) lines.push(`任务目标:${quest.desc}`);
+  if (quest.progress) lines.push(`当前进展:${quest.progress}`);
+  if (quest.faction) lines.push(`关联势力:${quest.faction}`);
+  const info = lines.length ? `\n${lines.join('\n')}\n` : '\n';
+  return [
+    `推进${kindLabel}「${quest.name}」。${info}`,
+    '请以剧情方式自然引出这个任务的启动或推进契机:可由任务相关方(发布任务的宗门/组织/委托人,或知晓此事的某个角色/NPC)主动发布、提及或邀请{{user}}参与,也可由当前剧情事件顺势带出。不要复述上面的任务描述,不要让{{user}}直接答应或跳过过程写结果,给{{user}}留出反应空间。',
   ].join('\n\n');
 }
 

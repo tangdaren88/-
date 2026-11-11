@@ -536,6 +536,8 @@ export interface MemQuest {
   status: QuestStatus;
   /** 关联势力名(原文引用 MemFaction.name;悬空=不显示关联) */
   faction?: string;
+  /** 父任务名(原文引用 MemQuest.name,子任务挂在其下;悬空/省略=顶级任务) */
+  parent?: string;
   /** 故事内完成/失败时间(AI 给了才记) */
   finishedTime?: string;
   createdAt: number;
@@ -758,6 +760,8 @@ export interface QuestDelta {
   finishedTime?: string;
   /** 关联势力名(空字符串=清除关联) */
   faction?: string;
+  /** 父任务名(子任务归属,与势力 parent 同款);空字符串/悬空=顶级 */
+  parent?: string;
 }
 
 /**

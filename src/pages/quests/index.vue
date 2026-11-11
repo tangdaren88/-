@@ -5,10 +5,12 @@ import ModalMask from '@/components/ModalMask.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
 import { editQuest, removeQuest, upsertQuest } from '@/memory/apply';
+import { buildQuestDraft } from '@/memory/inject';
 import { apiSettings } from '@/api/settings';
 import { derivedMeta, memory } from '@/memory/store';
+import { closeBook } from '@/state/ui';
 import type { MemQuest, QuestStatus } from '@/memory/types';
-import { getContext } from '@/st/context';
+import { appendChatInput, getContext } from '@/st/context';
 import { toast } from '@/st/toast';
 import { computed, ref } from 'vue';
 
@@ -17,17 +19,104 @@ const hasLeaf = computed(() => derivedMeta.hasLeaf);
 
 /* —— 进行中任务:主线在前(各按创建时间),已完结归档按最近更新倒序 —— */
 const activeQuests = computed(() => memory.quests.filter(q => q.status === 'active'));
-const mainQuests = computed(() =>
-  activeQuests.value.filter(q => q.kind === 'main').sort((a, b) => a.createdAt - b.createdAt),
-);
-const sideQuests = computed(() =>
-  activeQuests.value.filter(q => q.kind === 'side').sort((a, b) => a.createdAt - b.createdAt),
-);
+const mainCount = computed(() => activeQuests.value.filter(q => q.kind === 'main').length);
+const sideCount = computed(() => activeQuests.value.filter(q => q.kind === 'side').length);
 const archivedQuests = computed(() =>
   memory.quests
     .filter(q => q.status !== 'active')
     .sort((a, b) => b.updatedAt - a.updatedAt),
 );
+
+/* —— 子任务树:扁平任务按 parent 组装成嵌套树再展平成行,排版与势力/场景页同构 —— */
+const qkey = (s: string): string => s.trim().toLowerCase();
+interface QuestNode extends MemQuest {
+  children: QuestNode[];
+}
+/** 扁平 → 树(parent 存名字;父悬空/被删/已归档视作顶级,数据不动) */
+const questTree = computed<QuestNode[]>(() => {
+  const list = activeQuests.value;
+  const names = new Set(list.map(q => qkey(q.name)));
+  const byParent = new Map<string, QuestNode[]>();
+  const tops: QuestNode[] = [];
+  for (const q of list) {
+    const node: QuestNode = { ...q, children: [] };
+    const p = (q.parent ?? '').trim();
+    if (p && names.has(qkey(p))) {
+      const arr = byParent.get(qkey(p));
+      if (arr) arr.push(node);
+      else byParent.set(qkey(p), [node]);
+    } else {
+      tops.push(node); // 无父/父悬空 = 顶级
+    }
+  }
+  const attach = (nodes: QuestNode[]): void => {
+    for (const n of nodes) {
+      n.children = byParent.get(qkey(n.name)) ?? [];
+      attach(n.children);
+    }
+  };
+  attach(tops);
+  return tops;
+});
+
+interface QuestRow {
+  q: QuestNode;
+  depth: number;
+  hasChildren: boolean;
+  isCollapsed: boolean;
+}
+function flattenQuestTree(nodes: QuestNode[], depth: number, out: QuestRow[]): void {
+  for (const n of nodes) {
+    const hasChildren = n.children.length > 0;
+    const isCollapsed = hasChildren && collapsedNodes.value.has(n.id);
+    out.push({ q: n, depth, hasChildren, isCollapsed });
+    if (!isCollapsed) flattenQuestTree(n.children, depth + 1, out);
+  }
+}
+const mainRows = computed<QuestRow[]>(() => {
+  const out: QuestRow[] = [];
+  flattenQuestTree(questTree.value.filter(n => n.kind === 'main'), 0, out);
+  return out;
+});
+const sideRows = computed<QuestRow[]>(() => {
+  const out: QuestRow[] = [];
+  flattenQuestTree(questTree.value.filter(n => n.kind === 'side'), 0, out);
+  return out;
+});
+
+/* —— 单个任务的折叠:有子任务才出现箭头,点击收起/展开其整棵子树;
+      状态按聊天分桶存 localStorage(与势力树同款,默认全展开) —— */
+const NODE_COLLAPSE_KEY = 'bbs.quests.collapsedNodes.v1';
+function loadCollapsedNodes(): Set<string> {
+  try {
+    const all = JSON.parse(localStorage.getItem(NODE_COLLAPSE_KEY) || '{}');
+    const arr = all[chatKey()];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+const collapsedNodes = ref<Set<string>>(loadCollapsedNodes());
+function persistCollapsedNodes() {
+  try {
+    const all = JSON.parse(localStorage.getItem(NODE_COLLAPSE_KEY) || '{}');
+    all[chatKey()] = [...collapsedNodes.value];
+    localStorage.setItem(NODE_COLLAPSE_KEY, JSON.stringify(all));
+  } catch {
+    /* localStorage 不可用时仅本次会话生效 */
+  }
+}
+function toggleNodeCollapse(id: string) {
+  const next = new Set(collapsedNodes.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  collapsedNodes.value = next; // 换引用触发响应式
+  persistCollapsedNodes();
+}
+// 折叠时展示的后代任务数(整棵子树,按 parent 链)
+function subCount(node: QuestNode): number {
+  return node.children.reduce((acc, c) => acc + 1 + subCount(c), 0);
+}
 
 /* —— 分组折叠:纯本机 UI 态,按聊天分桶存 localStorage(与势力页折叠同款) —— */
 const QUESTS_COLLAPSE_KEY = 'bbs.quests.collapsed.v1';
@@ -72,6 +161,7 @@ interface QuestDraft {
   progress: string;
   status: QuestStatus;
   faction: string;
+  parent: string;
 }
 const questEditing = ref<QuestDraft | null>(null);
 const questRemoving = ref<MemQuest | null>(null);
@@ -86,13 +176,34 @@ const questFactionOptions = computed(() => [
   { value: '', label: '(无关联势力)' },
   ...memory.factions.map(f => ({ value: f.name, label: f.name })),
 ]);
+/** 父任务候选:全部现有任务,排除自己;防环:自己的子孙也不可选 */
+const questParentOptions = computed(() => {
+  const e = questEditing.value;
+  const exclude = new Set<string>();
+  if (e?.oldName) {
+    exclude.add(qkey(e.oldName));
+    const collect = (name: string): void => {
+      for (const q of memory.quests) {
+        if (qkey(q.parent ?? '') === qkey(name) && !exclude.has(qkey(q.name))) {
+          exclude.add(qkey(q.name));
+          collect(q.name);
+        }
+      }
+    };
+    collect(e.oldName);
+  }
+  return [
+    { value: '', label: '(无 — 顶级任务)' },
+    ...memory.quests.filter(q => !exclude.has(qkey(q.name))).map(q => ({ value: q.name, label: q.name })),
+  ];
+});
 
-function openQuestAdd(kind: 'main' | 'side' = 'main') {
+function openQuestAdd(kind: 'main' | 'side' = 'main', parent = '') {
   if (!hasLeaf.value) {
     toast('没有可写入的摘要楼层(先补摘一次)', 'error');
     return;
   }
-  questEditing.value = { oldName: '', name: '', kind, desc: '', progress: '', status: 'active', faction: '' };
+  questEditing.value = { oldName: '', name: '', kind, desc: '', progress: '', status: 'active', faction: '', parent };
 }
 function openQuestEdit(q: MemQuest) {
   questEditing.value = {
@@ -103,6 +214,7 @@ function openQuestEdit(q: MemQuest) {
     progress: q.progress ?? '',
     status: q.status,
     faction: q.faction ?? '',
+    parent: q.parent ?? '',
   };
 }
 function cancelQuestEdit() {
@@ -118,6 +230,7 @@ function saveQuestEdit() {
     progress: e.progress,
     status: e.status,
     faction: e.faction,
+    parent: e.parent,
   };
   // 新增走 editQuest 的 update 语义(不存在先建),一次 op 连 progress 一起写;但拒绝与现有任务重名
   if (!e.oldName && memory.quests.some(q => q.name.trim().toLowerCase() === patch.name.toLowerCase())) {
@@ -131,6 +244,23 @@ function saveQuestEdit() {
 function confirmRemoveQuest() {
   if (questRemoving.value && !removeQuest(questRemoving.value.name)) toast('没有可写入的摘要楼层(先补摘一次)', 'error');
   questRemoving.value = null;
+}
+
+/* —— 推进草稿:仿场景页「前往地点」,只生成草稿填输入框,不提前改记忆 —— */
+const questDrafting = ref<MemQuest | null>(null);
+function askQuestDraft(q: MemQuest) {
+  questDrafting.value = q;
+}
+function confirmQuestDraft() {
+  const q = questDrafting.value;
+  if (!q) return;
+  if (!appendChatInput(buildQuestDraft(q))) {
+    toast('无法写入 ST 输入框', 'error');
+    return;
+  }
+  questDrafting.value = null;
+  closeBook();
+  toast('任务推进草稿已填入输入框', 'success');
 }
 
 /* —— 批量导入:粘贴一段文本,按换行/顿号/逗号/分号等拆成一条条任务 —— */
@@ -188,7 +318,7 @@ function confirmQuestImport() {
             <em>开启:随剧情摘要自动回报任务并注入主模型防目标线写丢。关闭:不再注入、摘要也不再捕捉任务(已有记录保留,重新打开即恢复);仍可手动增删改回看。</em>
           </span>
         </label>
-        <p class="bbs-npc-mainhint">主线推动剧情的核心目标,支线是可接可不做的委托;随剧情自动捕捉演化,完成/失败后移入下方「已完结」归档(不再注入)。点 + 手动添加。</p>
+        <p class="bbs-npc-mainhint">主线推动剧情的核心目标,支线是可接可不做的委托;随剧情自动捕捉演化,完成/失败后移入下方「已完结」归档(不再注入)。点 + 手动添加,点卡片上的 + 添加其子任务,点卡片上的 → 生成剧情推进草稿。</p>
 
         <!-- 主线 -->
         <div class="bbs-npc-group">
@@ -202,30 +332,47 @@ function confirmQuestImport() {
             >
               <Icon name="chevron" class="bbs-fold-caret" :class="{ 'is-collapsed': collapsed.main }" />
               <h2 class="bbs-faction-title">主线任务</h2>
-              <span v-if="mainQuests.length" class="bbs-fold-count">{{ mainQuests.length }}</span>
+              <span v-if="mainCount" class="bbs-fold-count">{{ mainCount }}</span>
             </button>
             <button class="bbs-add-mini" type="button" title="批量导入主线任务" @click="openQuestImport('main')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加主线任务" @click="openQuestAdd('main')"><Icon name="plus" /></button>
           </div>
           <div v-if="!collapsed.main" class="bbs-npc-list">
-            <template v-if="mainQuests.length">
-              <article v-for="q in mainQuests" :key="q.id" class="bbs-npc is-present">
-                <div class="bbs-npc-body">
-                  <div class="bbs-npc-head">
-                    <span class="bbs-npc-name" :title="q.name">{{ q.name }}</span>
-                    <span class="bbs-npc-acts">
-                      <button class="bbs-item-act" type="button" title="编辑" @click="openQuestEdit(q)"><Icon name="edit" /></button>
-                      <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="questRemoving = q"><Icon name="trash" /></button>
-                    </span>
+            <template v-if="mainRows.length">
+              <!-- 行容器:轨道槽在卡片外侧(与势力/场景页同构),竖线跑在行背景里而不是卡内 -->
+              <div v-for="row in mainRows" :key="row.q.id" class="bbs-quest-row">
+                <span v-for="d in row.depth" :key="d" class="bbs-quest-rail" aria-hidden="true"></span>
+                <article class="bbs-npc is-present" :class="{ 'is-child': row.depth > 0, 'is-side': row.q.kind === 'side' }">
+                  <div class="bbs-npc-body">
+                    <div class="bbs-npc-head">
+                      <button
+                        v-if="row.hasChildren"
+                        class="bbs-quest-toggle"
+                        :class="{ collapsed: row.isCollapsed }"
+                        type="button"
+                        :title="row.isCollapsed ? `展开 ${row.q.children.length} 个子任务` : '收起子任务'"
+                        :aria-label="row.isCollapsed ? '展开子任务' : '收起子任务'"
+                        @click.stop="toggleNodeCollapse(row.q.id)"
+                      ><Icon name="chevron" /></button>
+                      <span class="bbs-npc-name" :title="row.q.name">{{ row.q.name }}</span>
+                      <span v-if="row.hasChildren && row.isCollapsed" class="bbs-quest-childcount" :title="`已收起 ${subCount(row.q)} 个子任务`">{{ subCount(row.q) }}</span>
+                      <span v-if="row.depth > 0 && row.q.parent" class="bbs-npc-gender" :title="`子任务 · 隶属 ${row.q.parent}`">子任务</span>
+                      <span class="bbs-npc-acts">
+                        <button class="bbs-item-act" type="button" title="生成推进草稿" @click="askQuestDraft(row.q)"><Icon name="navigate" /></button>
+                        <button class="bbs-item-act" type="button" :title="`在 ${row.q.name} 下添加子任务`" @click="openQuestAdd(row.q.kind, row.q.name)"><Icon name="plus" /></button>
+                        <button class="bbs-item-act" type="button" title="编辑" @click="openQuestEdit(row.q)"><Icon name="edit" /></button>
+                        <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="questRemoving = row.q"><Icon name="trash" /></button>
+                      </span>
+                    </div>
+                    <dl v-if="row.q.desc || row.q.progress || row.q.faction" class="bbs-npc-fields">
+                      <div v-if="row.q.desc" class="bbs-npc-field f-desc"><dt title="做什么 / 为什么 / 做到什么程度算成">目标</dt><dd>{{ row.q.desc }}</dd></div>
+                      <div v-if="row.q.progress" class="bbs-npc-field"><dt>进展</dt><dd>{{ row.q.progress }}</dd></div>
+                      <div v-if="row.q.faction" class="bbs-npc-field"><dt>势力</dt><dd>{{ row.q.faction }}</dd></div>
+                    </dl>
+                    <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充目标与当前进展。</p>
                   </div>
-                  <dl v-if="q.desc || q.progress || q.faction" class="bbs-npc-fields">
-                    <div v-if="q.desc" class="bbs-npc-field f-desc"><dt title="做什么 / 为什么 / 做到什么程度算成">目标</dt><dd>{{ q.desc }}</dd></div>
-                    <div v-if="q.progress" class="bbs-npc-field"><dt>进展</dt><dd>{{ q.progress }}</dd></div>
-                    <div v-if="q.faction" class="bbs-npc-field"><dt>势力</dt><dd>{{ q.faction }}</dd></div>
-                  </dl>
-                  <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充目标与当前进展。</p>
-                </div>
-              </article>
+                </article>
+              </div>
             </template>
             <p v-else class="bbs-npc-mainhint">暂无进行中的主线任务;摘要出现新任务线后会自动记录。</p>
           </div>
@@ -243,30 +390,46 @@ function confirmQuestImport() {
             >
               <Icon name="chevron" class="bbs-fold-caret" :class="{ 'is-collapsed': collapsed.side }" />
               <h2 class="bbs-faction-title">支线任务</h2>
-              <span v-if="sideQuests.length" class="bbs-fold-count">{{ sideQuests.length }}</span>
+              <span v-if="sideCount" class="bbs-fold-count">{{ sideCount }}</span>
             </button>
             <button class="bbs-add-mini" type="button" title="批量导入支线任务" @click="openQuestImport('side')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加支线任务" @click="openQuestAdd('side')"><Icon name="plus" /></button>
           </div>
           <div v-if="!collapsed.side" class="bbs-npc-list">
-            <template v-if="sideQuests.length">
-              <article v-for="q in sideQuests" :key="q.id" class="bbs-npc is-present is-side">
-                <div class="bbs-npc-body">
-                  <div class="bbs-npc-head">
-                    <span class="bbs-npc-name" :title="q.name">{{ q.name }}</span>
-                    <span class="bbs-npc-acts">
-                      <button class="bbs-item-act" type="button" title="编辑" @click="openQuestEdit(q)"><Icon name="edit" /></button>
-                      <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="questRemoving = q"><Icon name="trash" /></button>
-                    </span>
+            <template v-if="sideRows.length">
+              <div v-for="row in sideRows" :key="row.q.id" class="bbs-quest-row">
+                <span v-for="d in row.depth" :key="d" class="bbs-quest-rail" aria-hidden="true"></span>
+                <article class="bbs-npc is-present is-side" :class="{ 'is-child': row.depth > 0 }">
+                  <div class="bbs-npc-body">
+                    <div class="bbs-npc-head">
+                      <button
+                        v-if="row.hasChildren"
+                        class="bbs-quest-toggle"
+                        :class="{ collapsed: row.isCollapsed }"
+                        type="button"
+                        :title="row.isCollapsed ? `展开 ${row.q.children.length} 个子任务` : '收起子任务'"
+                        :aria-label="row.isCollapsed ? '展开子任务' : '收起子任务'"
+                        @click.stop="toggleNodeCollapse(row.q.id)"
+                      ><Icon name="chevron" /></button>
+                      <span class="bbs-npc-name" :title="row.q.name">{{ row.q.name }}</span>
+                      <span v-if="row.hasChildren && row.isCollapsed" class="bbs-quest-childcount" :title="`已收起 ${subCount(row.q)} 个子任务`">{{ subCount(row.q) }}</span>
+                      <span v-if="row.depth > 0 && row.q.parent" class="bbs-npc-gender" :title="`子任务 · 隶属 ${row.q.parent}`">子任务</span>
+                      <span class="bbs-npc-acts">
+                        <button class="bbs-item-act" type="button" title="生成推进草稿" @click="askQuestDraft(row.q)"><Icon name="navigate" /></button>
+                        <button class="bbs-item-act" type="button" :title="`在 ${row.q.name} 下添加子任务`" @click="openQuestAdd(row.q.kind, row.q.name)"><Icon name="plus" /></button>
+                        <button class="bbs-item-act" type="button" title="编辑" @click="openQuestEdit(row.q)"><Icon name="edit" /></button>
+                        <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="questRemoving = row.q"><Icon name="trash" /></button>
+                      </span>
+                    </div>
+                    <dl v-if="row.q.desc || row.q.progress || row.q.faction" class="bbs-npc-fields">
+                      <div v-if="row.q.desc" class="bbs-npc-field f-desc"><dt title="做什么 / 为什么 / 做到什么程度算成">目标</dt><dd>{{ row.q.desc }}</dd></div>
+                      <div v-if="row.q.progress" class="bbs-npc-field"><dt>进展</dt><dd>{{ row.q.progress }}</dd></div>
+                      <div v-if="row.q.faction" class="bbs-npc-field"><dt>势力</dt><dd>{{ row.q.faction }}</dd></div>
+                    </dl>
+                    <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充目标与当前进展。</p>
                   </div>
-                  <dl v-if="q.desc || q.progress || q.faction" class="bbs-npc-fields">
-                    <div v-if="q.desc" class="bbs-npc-field f-desc"><dt title="做什么 / 为什么 / 做到什么程度算成">目标</dt><dd>{{ q.desc }}</dd></div>
-                    <div v-if="q.progress" class="bbs-npc-field"><dt>进展</dt><dd>{{ q.progress }}</dd></div>
-                    <div v-if="q.faction" class="bbs-npc-field"><dt>势力</dt><dd>{{ q.faction }}</dd></div>
-                  </dl>
-                  <p v-else class="bbs-npc-mainhint">尚无描述 —— 编辑可补充目标与当前进展。</p>
-                </div>
-              </article>
+                </article>
+              </div>
             </template>
             <p v-else class="bbs-npc-mainhint">暂无进行中的支线任务;可点上方 + 手动接个委托。</p>
           </div>
@@ -300,6 +463,7 @@ function confirmQuestImport() {
                   <span class="bbs-quest-state" :class="q.status">{{ q.status === 'done' ? '已完成' : '已失败' }}</span>
                   <span v-if="q.finishedTime" class="bbs-npc-gender" :title="'故事内完结时间'">{{ q.finishedTime }}</span>
                   <span class="bbs-npc-acts">
+                    <button class="bbs-item-act" type="button" title="生成推进草稿" @click="askQuestDraft(q)"><Icon name="navigate" /></button>
                     <button class="bbs-item-act" type="button" title="编辑(改回「进行中」可重新激活)" @click="openQuestEdit(q)"><Icon name="edit" /></button>
                     <button class="bbs-item-act bbs-item-del" type="button" title="删除" @click="questRemoving = q"><Icon name="trash" /></button>
                   </span>
@@ -326,6 +490,10 @@ function confirmQuestImport() {
             <span class="bbs-modal-label">任务名</span>
             <input v-model="questEditing.name" class="bbs-input" type="text" placeholder="如:查明图书馆密室的来历" />
           </label>
+          <div class="bbs-modal-field">
+            <span class="bbs-modal-label">父任务(留空 = 顶级;子任务像势力/场景一样挂在其下)</span>
+            <BbsSelect v-model="questEditing.parent" :options="questParentOptions" aria-label="父任务" />
+          </div>
           <label class="bbs-modal-field">
             <span class="bbs-modal-label">类型(主线=推动剧情的核心目标;支线=可接可不做的委托)</span>
             <BbsSelect v-model="questEditing.kind" :options="[{ value: 'main', label: '主线' }, { value: 'side', label: '支线' }]" aria-label="任务类型" />
@@ -388,7 +556,19 @@ function confirmQuestImport() {
         @confirm="confirmRemoveQuest"
         @cancel="questRemoving = null"
       >
-        删除任务「{{ questRemoving?.name }}」?删除会写入最新摘要,此后不会再被捕捉恢复。若只是不想再跟踪,建议改成「已完成/已失败」归档保留。
+        删除任务「{{ questRemoving?.name }}」?其子任务不会被连带删除,会自动升为顶级(可再编辑改指其他父级)。删除会写入最新摘要,此后不会再被捕捉恢复。若只是不想再跟踪,建议改成「已完成/已失败」归档保留。
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        :open="!!questDrafting"
+        title="生成推进草稿"
+        confirm-text="填入输入框"
+        confirm-icon="navigate"
+        @update:open="v => { if (!v) questDrafting = null; }"
+        @confirm="confirmQuestDraft"
+        @cancel="questDrafting = null"
+      >
+        按任务「{{ questDrafting?.name }}」的当前状态生成一段剧情推进草稿(相关方发布、NPC 提及或邀请<span v-pre>{{user}}</span>参与等契机);不会自动发送,也不会修改记忆。输入框已有内容时会追加在末尾。
       </ConfirmDialog>
     </div>
   </section>
@@ -535,6 +715,66 @@ function confirmQuestImport() {
 }
 .bbs-npc.is-side::before {
   opacity: 0.28;
+}
+/* 子任务:左色条更细更淡,与缩进一起表达层级(与势力页同款) */
+.bbs-npc.is-child::before {
+  width: 2px;
+  opacity: 0.28;
+}
+/* —— 子任务树(与势力/场景页同构):行容器 flex,轨道槽在卡片外侧,槽内一条 hairline 竖线;
+      列表行距 8px,竖线上下各探出 8px 跨过行间隙连成贯穿线 —— */
+.bbs-quest-row {
+  display: flex;
+  align-items: stretch;
+}
+.bbs-quest-row .bbs-npc {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bbs-quest-rail {
+  flex: 0 0 14px;
+  position: relative;
+}
+.bbs-quest-rail::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: -8px;
+  bottom: -8px;
+  width: 1px;
+  background: var(--bbs-line);
+}
+/* 子任务折叠箭头:与势力树同款——展开朝下,收起朝右;只有挂了子任务的卡片才出现 */
+.bbs-quest-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bbs-ink-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.16s var(--bbs-ease), color var(--bbs-dur) var(--bbs-ease);
+}
+.bbs-quest-toggle:hover {
+  color: var(--bbs-accent);
+}
+.bbs-quest-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+/* 收起态的子任务计数:小胶囊跟在名字后 */
+.bbs-quest-childcount {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-family: var(--bbs-font-mono);
+  color: var(--bbs-ink-muted);
+  padding: 0 6px;
+  border-radius: var(--bbs-radius-pill);
+  background: var(--bbs-surface-2);
 }
 .bbs-npc-body {
   flex: 1;
