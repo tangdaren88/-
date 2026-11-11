@@ -6,11 +6,81 @@ import { editDeepProfile, editWorldOverview, removeDeepProfile } from '@/memory/
 import { derivedMeta, memory } from '@/memory/store';
 import type { JingtongProfile } from '@/memory/types';
 import { apiSettings } from '@/api/settings';
+import { getContext } from '@/st/context';
 import { toast } from '@/st/toast';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 // 镜瞳(自用二改)独立页:世界观总览 / 深度档案 / 问卷备注三块归拢展示。
 // 数据都是派生数据,手动编辑写回「最新一条有效叶子」(apply.ts 同范式);无有效叶子时编辑会失败并提示。
+
+/* —— 折叠:整块 + 单个档案。纯本机 UI 态,按聊天分桶存 localStorage(与场景/势力页同款) —— */
+type JtSection = 'overview' | 'profiles' | 'notes';
+const SECTION_KEY = 'bbs.jingtong.collapsed.v1';
+const PROFILE_KEY = 'bbs.jingtong.collapsedProfiles.v1';
+function chatKey(): string {
+  return getContext()?.getCurrentChatId?.() || '_';
+}
+function loadSet(key: string): Set<string> {
+  try {
+    const all = JSON.parse(localStorage.getItem(key) || '{}');
+    const arr = all[chatKey()];
+    return new Set<string>(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+function persistSet(key: string, set: Set<string>) {
+  try {
+    const all = JSON.parse(localStorage.getItem(key) || '{}');
+    all[chatKey()] = [...set];
+    localStorage.setItem(key, JSON.stringify(all));
+  } catch {
+    /* localStorage 不可用时仅本次会话生效 */
+  }
+}
+
+const collapsedSections = ref<Set<string>>(loadSet(SECTION_KEY));
+function isSectionCollapsed(id: JtSection): boolean {
+  return collapsedSections.value.has(id);
+}
+function toggleSection(id: JtSection) {
+  const next = new Set(collapsedSections.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  collapsedSections.value = next; // 换引用触发响应式
+  persistSet(SECTION_KEY, next);
+}
+
+// 单个档案按名字(规范化)记折叠;名字改了就等于新档案,自然回到展开态
+const pkey = (name: string): string => name.trim().toLowerCase();
+const collapsedProfiles = ref<Set<string>>(loadSet(PROFILE_KEY));
+function isProfileCollapsed(name: string): boolean {
+  return collapsedProfiles.value.has(pkey(name));
+}
+function toggleProfile(name: string) {
+  const next = new Set(collapsedProfiles.value);
+  if (next.has(pkey(name))) next.delete(pkey(name));
+  else next.add(pkey(name));
+  collapsedProfiles.value = next;
+  persistSet(PROFILE_KEY, next);
+}
+const allProfilesCollapsed = computed(
+  () => memory.deepProfiles.length > 0 && memory.deepProfiles.every(p => isProfileCollapsed(p.name)),
+);
+function toggleAllProfiles() {
+  const next = new Set(collapsedProfiles.value);
+  if (allProfilesCollapsed.value) {
+    for (const p of memory.deepProfiles) next.delete(pkey(p.name));
+  } else {
+    for (const p of memory.deepProfiles) next.add(pkey(p.name));
+  }
+  collapsedProfiles.value = next;
+  persistSet(PROFILE_KEY, next);
+}
+/** 收起后给个行数提示,知道这条档案有多长 */
+function profileLines(p: JingtongProfile): number {
+  return p.text.split('\n').filter(l => l.trim()).length;
+}
 
 /* —— 世界观总览:手动编辑(覆盖层,写回最新叶子;清空保存=还原楼层原文) —— */
 const overviewEditing = ref(false);
@@ -66,50 +136,100 @@ function confirmRemoveProfile() {
     <!-- 世界观总览:从楼层【镜瞳·世界观总览】/<jt_anchor> 总览段派生;可手动修正;清空保存=还原楼层原文 -->
     <div class="bbs-jt-block">
       <div class="bbs-jt-head">
-        <Icon name="scenes" />
-        <span>世界观总览</span>
+        <button
+          class="bbs-jt-fold"
+          type="button"
+          :aria-expanded="!isSectionCollapsed('overview')"
+          :title="isSectionCollapsed('overview') ? '展开世界观总览' : '收起世界观总览'"
+          @click="toggleSection('overview')"
+        >
+          <Icon name="chevron" class="bbs-jt-caret" :class="{ 'is-collapsed': isSectionCollapsed('overview') }" />
+          <Icon name="scenes" />
+          <span>世界观总览</span>
+        </button>
         <span class="bbs-jt-tag">镜瞳</span>
         <button class="bbs-jt-act" type="button" title="编辑总览" @click="openOverviewEdit"><Icon name="edit" /></button>
       </div>
-      <p v-if="memory.worldOverview" class="bbs-jt-text">{{ memory.worldOverview }}</p>
-      <p v-else class="bbs-jt-none">尚未捕获总览。楼层正文里出现【镜瞳·世界观总览】段后自动归档于此。</p>
+      <template v-if="!isSectionCollapsed('overview')">
+        <p v-if="memory.worldOverview" class="bbs-jt-text">{{ memory.worldOverview }}</p>
+        <p v-else class="bbs-jt-none">尚未捕获总览。楼层正文里出现【镜瞳·世界观总览】段后自动归档于此。</p>
+      </template>
     </div>
 
     <!-- 深度档案:从楼层「镜瞳·深度档案」派生的客观基底,不受摘要重总结影响 -->
     <div class="bbs-jt-block">
       <div class="bbs-jt-head">
-        <Icon name="characters" />
-        <span>深度档案</span>
+        <button
+          class="bbs-jt-fold"
+          type="button"
+          :aria-expanded="!isSectionCollapsed('profiles')"
+          :title="isSectionCollapsed('profiles') ? '展开深度档案' : '收起深度档案'"
+          @click="toggleSection('profiles')"
+        >
+          <Icon name="chevron" class="bbs-jt-caret" :class="{ 'is-collapsed': isSectionCollapsed('profiles') }" />
+          <Icon name="characters" />
+          <span>深度档案</span>
+        </button>
         <span class="bbs-jt-tag">镜瞳</span>
         <span class="bbs-jt-count" v-if="memory.deepProfiles.length">{{ memory.deepProfiles.length }}</span>
+        <button
+          v-if="memory.deepProfiles.length && !isSectionCollapsed('profiles')"
+          class="bbs-jt-textbtn"
+          type="button"
+          :title="allProfilesCollapsed ? '展开全部档案' : '收起全部档案'"
+          @click="toggleAllProfiles"
+        >{{ allProfilesCollapsed ? '全部展开' : '全部收起' }}</button>
       </div>
-      <p class="bbs-jt-blockhint">镜瞳拍摄的客观基底(已剔除性格/印象等易变项);按设置页间隔注入主模型,防人设漂移;可手动修正,编辑/删除写入最新摘要。</p>
-      <div v-if="memory.deepProfiles.length" class="bbs-jt-list">
-        <article v-for="p in memory.deepProfiles" :key="p.name" class="bbs-jt-profile">
-          <div class="bbs-jt-profilehead">
-            <span class="bbs-jt-name" :title="p.name">{{ p.name }}</span>
-            <span class="bbs-jt-gender" :title="`捕获于第 ${p.floor + 1} 楼`">镜瞳</span>
-            <span class="bbs-jt-acts">
-              <button class="bbs-jt-act" type="button" title="编辑" @click="openProfileEdit(p)"><Icon name="edit" /></button>
-              <button class="bbs-jt-act bbs-jt-del" type="button" title="删除" @click="profileRemoving = p"><Icon name="trash" /></button>
-            </span>
-          </div>
-          <pre class="bbs-jt-profiletext">{{ p.text }}</pre>
-        </article>
-      </div>
-      <p v-else class="bbs-jt-none">尚无固定档案。楼层正文里出现「镜瞳·深度档案」段后自动归档于此。</p>
+      <template v-if="!isSectionCollapsed('profiles')">
+        <p class="bbs-jt-blockhint">镜瞳拍摄的客观基底(已剔除性格/印象等易变项);按设置页间隔注入主模型,防人设漂移;可手动修正,编辑/删除写入最新摘要。</p>
+        <div v-if="memory.deepProfiles.length" class="bbs-jt-list">
+          <article v-for="p in memory.deepProfiles" :key="p.name" class="bbs-jt-profile">
+            <div class="bbs-jt-profilehead">
+              <button
+                class="bbs-jt-nametoggle"
+                type="button"
+                :aria-expanded="!isProfileCollapsed(p.name)"
+                :title="isProfileCollapsed(p.name) ? '展开这条档案' : '收起这条档案'"
+                @click="toggleProfile(p.name)"
+              >
+                <Icon name="chevron" class="bbs-jt-caret" :class="{ 'is-collapsed': isProfileCollapsed(p.name) }" />
+                <span class="bbs-jt-name" :title="p.name">{{ p.name }}</span>
+              </button>
+              <span class="bbs-jt-gender" :title="`捕获于第 ${p.floor + 1} 楼`">镜瞳</span>
+              <span v-if="isProfileCollapsed(p.name)" class="bbs-jt-count">{{ profileLines(p) }} 行</span>
+              <span class="bbs-jt-acts">
+                <button class="bbs-jt-act" type="button" title="编辑" @click="openProfileEdit(p)"><Icon name="edit" /></button>
+                <button class="bbs-jt-act bbs-jt-del" type="button" title="删除" @click="profileRemoving = p"><Icon name="trash" /></button>
+              </span>
+            </div>
+            <pre v-if="!isProfileCollapsed(p.name)" class="bbs-jt-profiletext">{{ p.text }}</pre>
+          </article>
+        </div>
+        <p v-else class="bbs-jt-none">尚无固定档案。楼层正文里出现「镜瞳·深度档案」段后自动归档于此。</p>
+      </template>
     </div>
 
     <!-- 问卷备注:玩家开局问卷申报的事实备忘(目前只注入、不参与手动编辑) -->
     <div class="bbs-jt-block">
       <div class="bbs-jt-head">
-        <Icon name="bulb" />
-        <span>问卷备注</span>
+        <button
+          class="bbs-jt-fold"
+          type="button"
+          :aria-expanded="!isSectionCollapsed('notes')"
+          :title="isSectionCollapsed('notes') ? '展开问卷备注' : '收起问卷备注'"
+          @click="toggleSection('notes')"
+        >
+          <Icon name="chevron" class="bbs-jt-caret" :class="{ 'is-collapsed': isSectionCollapsed('notes') }" />
+          <Icon name="bulb" />
+          <span>问卷备注</span>
+        </button>
         <span class="bbs-jt-tag">镜瞳</span>
       </div>
-      <p class="bbs-jt-blockhint">玩家开局问卷里申报的事实备忘,与总览同开关、同间隔注入。此处只读展示;要修改请改开局问卷楼层后重放摘要。</p>
-      <p v-if="memory.questionnaireNotes" class="bbs-jt-text">{{ memory.questionnaireNotes }}</p>
-      <p v-else class="bbs-jt-none">暂无问卷备注。</p>
+      <template v-if="!isSectionCollapsed('notes')">
+        <p class="bbs-jt-blockhint">玩家开局问卷里申报的事实备忘,与总览同开关、同间隔注入。此处只读展示;要修改请改开局问卷楼层后重放摘要。</p>
+        <p v-if="memory.questionnaireNotes" class="bbs-jt-text">{{ memory.questionnaireNotes }}</p>
+        <p v-else class="bbs-jt-none">暂无问卷备注。</p>
+      </template>
     </div>
 
     <!-- 世界观总览编辑弹窗 -->
@@ -194,6 +314,48 @@ function confirmRemoveProfile() {
   font-weight: 600;
   color: var(--bbs-ink);
 }
+/* 区块折叠头:整块标题都可点,箭头展开朝下/收起朝右(与场景、势力、任务页同款) */
+.bbs-jt-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.bbs-jt-fold:hover .bbs-jt-caret,
+.bbs-jt-fold:focus-visible .bbs-jt-caret {
+  color: var(--bbs-accent);
+}
+.bbs-jt-caret {
+  flex: 0 0 auto;
+  color: var(--bbs-ink-muted);
+  transition: transform 0.2s ease, color 0.15s;
+}
+.bbs-jt-caret.is-collapsed {
+  transform: rotate(-90deg);
+}
+/* 档案列表的「全部收起/展开」:安静的小文字按钮 */
+.bbs-jt-textbtn {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--bbs-radius-sm);
+  background: transparent;
+  color: var(--bbs-ink-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.bbs-jt-textbtn:hover {
+  background: var(--bbs-surface-2);
+  color: var(--bbs-accent);
+}
 .bbs-jt-tag {
   flex: 0 0 auto;
   font-size: 10px;
@@ -274,6 +436,23 @@ function confirmRemoveProfile() {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+/* 单条档案的名字也是折叠按钮:手机上好点,不用瞄小箭头 */
+.bbs-jt-nametoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.bbs-jt-nametoggle:hover .bbs-jt-caret,
+.bbs-jt-nametoggle:focus-visible .bbs-jt-caret {
+  color: var(--bbs-accent);
 }
 .bbs-jt-name {
   min-width: 0;
