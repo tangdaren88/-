@@ -103,6 +103,20 @@ describe('问卷深建档', () => {
     expect(scan.factions[0].desc).toContain('掌舵');
   });
 
+  it('势力种子:顿号枚举的多派系拆成各势力,不再整句卡成一条(「三方博弈」集体名舍弃)', () => {
+    const scan = scanJingtong([msg('┌ 镜瞳·世界观总览 ─────────\n③ 权力与势力：三方博弈——陆家为代表的军旅铁血建制派、以陆淮舟背后商贾巨富为首的资本新贵、以及以象牙塔学术权威与名校圈子构建的文化资本派。\n└────────────────')]);
+    expect(scan.factions.map(f => f.name)).toEqual(['军旅铁血建制派', '资本新贵', '文化资本派']);
+    expect(scan.factions[0].desc).toContain('陆家为代表');
+    expect(scan.factions[1].desc).toContain('陆淮舟');
+  });
+
+  it('势力种子:罗列权柄的顿号不误拆(单一势力的描述句仍是一条)', () => {
+    const scan = scanJingtong([msg('┌ 镜瞳·世界观总览 ─────────\n③ 权力与势力：军务委员会掌管军费、人事与后勤。\n└────────────────')]);
+    expect(scan.factions).toHaveLength(1);
+    expect(scan.factions[0].name).toBe('军务委员会');
+    expect(scan.factions[0].desc).toContain('掌管');
+  });
+
   it('势力种子:无组织后缀的「人带势力」写法走领袖称谓兜底(地下世界黑道头子)', () => {
     const ov = [
       '┌ 镜瞳·世界观总览 ─────────',

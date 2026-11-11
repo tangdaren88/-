@@ -107,6 +107,7 @@ function shortenFactionName(entry: string): string {
       if (start < 0) break;
       const pre = entry.slice(start, end - m[0].length);
       if (!/^[\u4e00-\u9fa5]{1,4}$/.test(pre)) continue;
+      if (/[的之与和及在为于了是其]/.test(pre)) continue; // 虚词混进前缀=切进了修饰句(「构建的文化资本」),往长试
       const cand = pre + m[0];
       if (FACTION_NAME_BLOCK.test(cand)) break;
       if (!best || cand.length < best.length) best = cand;
@@ -160,9 +161,72 @@ function extractFactionSection(overview: string): string {
   return parts.join('\n');
 }
 
+/** 枚举段的「势力感」收尾词:顿号拆段后,以此认定段落在说一个派系而非罗列权柄 */
+const FACTION_ENUM_TAIL = /(派|新贵|势力|集团|联盟|阵营|权贵|财阀|门阀|世家|圈子|阶层|教会|学院|商会|家族|会社)$/;
+
+/** 段落是否「长得像势力名」:有组织后缀或以派系收尾词收尾,且不含权力动词(含动词=单一势力的描述句) */
+function looksLikeFactionSeg(seg: string): boolean {
+  if (seg.length < 3 || seg.length > 24) return false;
+  if (FACTION_POWER_VERB.test(seg)) return false;
+  return new RegExp(FACTION_SUFFIX_RE.source).test(seg) || FACTION_ENUM_TAIL.test(seg);
+}
+
+/** 顿号枚举段 → 势力种子:「(以)X为首的/为代表的Y」名取 Y(X 并入描述);否则整段为名(过长试抽短名,整句转描述) */
+function factionFromSeg(seg: string, seen: Set<string>): { name: string; desc?: string } | null {
+  const m = seg.match(/^以?(.{1,14}?)(?:为首的|为代表的)(.+)$/);
+  let name = '';
+  let desc = '';
+  if (m) {
+    name = m[2].trim();
+    desc = seg.slice(0, seg.length - name.length).trim().replace(/的$/, '');
+  } else {
+    name = seg;
+    if (name.length > 12) {
+      // 「以象牙塔学术权威与名校圈子构建的文化资本派」式长段:优先取末个「的」之后的派系尾(整段转描述)
+      const tail = name.match(/[^的]{0,24}的([^的]{2,10})$/);
+      const cand = tail?.[1]?.trim() ?? '';
+      const suffixLike = new RegExp(FACTION_SUFFIX_RE.source).test(cand) || FACTION_ENUM_TAIL.test(cand);
+      if (cand && suffixLike && !seen.has(normName(cand))) {
+        desc = name;
+        name = cand;
+      } else {
+        const short = shortenFactionName(name);
+        if (short && short.length < name.length && !seen.has(normName(short))) {
+          desc = name;
+          name = short;
+        }
+      }
+    }
+  }
+  name = name.replace(/^[「『"']+|[」』"']+$/g, '').trim();
+  const key = normName(name);
+  if (!key || seen.has(key)) return null;
+  return desc ? { name, desc } : { name };
+}
+
+/**
+ * 条目里的「多势力枚举」检测:总览爱把几个派系用顿号并写在一句里
+ * (「陆家为代表的军旅铁血建制派、以陆淮舟背后商贾巨富为首的资本新贵、以及…的文化资本派」),
+ * 分号拆条对此失效 → 整句被卡成一条。这里按顿号/逗号拆段,≥2 段「长得像势力名」才认定是枚举;
+ * 罗列权柄的描述句(「掌管军费、人事与后勤」)拆不出两个像势力的段,自然不误拆。
+ * 命中返回各段(只留像势力的段),否则 null(维持原条目)。
+ */
+function splitFactionEnumeration(text: string): string[] | null {
+  if (!/[、，,]/.test(text)) return null;
+  const segs = text
+    .split(/[、，,]+/)
+    .map(s => s.replace(/^(?:以及|及|和|与)/, '').trim())
+    .filter(Boolean);
+  if (segs.length < 2) return null;
+  const hit = segs.filter(looksLikeFactionSeg);
+  if (hit.length < 2) return null;
+  return hit;
+}
+
 /**
  * 势力种子捕捉:权力与势力段按分号/换行拆条,每条用权力动词拆「名 | 权力描述」。
  * 拆不出动词则试「名：描述」;再拆不出整条为名(desc 空,留给 AI 摘要或手动补)。
+ * 条目描述里若检测出顿号枚举的多个派系(见 splitFactionEnumeration),进一步拆成各势力(集体名如「三方博弈」舍弃)。
  * 例:「校董会与老钱赞助家族掌管资源分配与招生特权」→ 名「校董会与老钱赞助家族」,
  * desc「掌管资源分配与招生特权」。
  */
@@ -189,6 +253,20 @@ export function extractFactions(overview: string): JingtongFaction[] {
       } else {
         name = entry;
       }
+    }
+    // 多势力枚举(自用二改):描述(无描述时整句)里用顿号并列了 ≥2 个派系 → 逐个拆出
+    const enumSegs = splitFactionEnumeration(desc || name);
+    if (enumSegs) {
+      for (const seg of enumSegs) {
+        const f = factionFromSeg(seg, seen);
+        if (f) {
+          seen.add(normName(f.name));
+          out.push(f);
+        }
+        if (out.length >= 12) break; // 兜底上限:畸形段落不至于灌满名册
+      }
+      if (out.length >= 12) break;
+      continue;
     }
     name = name.replace(/^[「『"']+|[」』"']+$/g, '').trim();
     // 名字过长(动词拆不动/拆出了半句):试抽短势力名,整句转作描述 —— 防止「老牌政商楚家由楚律维掌舵稳控大局」这种整句卡名
