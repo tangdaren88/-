@@ -136,7 +136,14 @@ export function recomputeDerived(): void {
     }
   }
   // 问卷「备注」段:人物小传/世界设定备忘,存派生缓存供注入(防 OOC);与 NPC 条目独立(有的问卷只有备注没有人名)
-  memory.questionnaireNotes = scan.notes;
+  // 手动覆盖层与总览同款:取楼层顺序上最后一次非 null 覆盖;null=清除覆盖还原楼层原文。
+  // (问卷备注常捕捉不到,允许玩家直接在镜瞳页补写)
+  let notesOverride: string | null | undefined;
+  for (const m of chat ?? []) {
+    const nv = getLeaf(m)?.delta?.jingtong?.notes;
+    if (nv !== undefined) notesOverride = nv;
+  }
+  memory.questionnaireNotes = notesOverride !== undefined && notesOverride !== null ? notesOverride : scan.notes;
   if (scan.factions.length) {
     // 势力种子:首轮世界观总览「权力与势力」段捕捉的势力。重放出的势力已存在则跳过;
     // 被手动删过(叶子 delta.factions.remove 墓碑)的种子不复活

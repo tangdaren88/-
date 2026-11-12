@@ -6,10 +6,13 @@
  *  - 势力种子短名提取(不再整句卡名)
  *  - 问卷备注段入派生缓存
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { deriveMemory } from './apply';
 import { scanJingtong } from './jingtong';
-import type { STMessage } from '@/st/context';
+import { memory, recomputeDerived } from './store';
+import { createEmptyMemory } from './types';
+import * as context from '@/st/context';
+import type { STContext, STMessage } from '@/st/context';
 
 function msg(mes: string): STMessage {
   return { mes, is_user: false, name: 'Char' } as unknown as STMessage;
@@ -135,5 +138,27 @@ describe('问卷深建档', () => {
     expect(scan.notes).toContain('楚律维，42岁'.replace('楚律维，42岁', '42岁'));
     expect(scan.notes).toContain('商业巨鳄');
     expect(scan.notes).not.toContain('长远目标');
+  });
+
+  it('问卷备注手动覆盖:非 null 覆盖楼层扫描结果,null 还原楼层原文', () => {
+    const m1 = msg(QUESTIONNAIRE);
+    const m2 = msg('后续剧情。');
+    m2.extra = { bbs_leaf: { id: 'leaf-notes-1', delta: { jingtong: { notes: '手填:宋鹤年是宋家家主。' } } } } as STMessage['extra'];
+    const m3 = msg('再后文。');
+    m3.extra = { bbs_leaf: { id: 'leaf-notes-2', delta: { jingtong: { notes: null } } } } as STMessage['extra'];
+
+    // 覆盖层在 store.recomputeDerived 里生效(与总览同款),需要按聊天上下文重算一次
+    const spy = vi.spyOn(context, 'getContext');
+    Object.assign(memory, createEmptyMemory());
+
+    spy.mockReturnValue({ chat: [m1, m2], getCurrentChatId: () => 'notes-override' } as STContext);
+    recomputeDerived();
+    expect(memory.questionnaireNotes).toBe('手填:宋鹤年是宋家家主。');
+
+    spy.mockReturnValue({ chat: [m1, m2, m3], getCurrentChatId: () => 'notes-override' } as STContext);
+    recomputeDerived();
+    expect(memory.questionnaireNotes).toContain('商业巨鳄');
+
+    spy.mockRestore();
   });
 });

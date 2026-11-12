@@ -968,6 +968,8 @@ export interface StoredDelta {
   jingtong?: {
     /** 手动编辑的世界观总览(覆盖型:string=覆盖楼层扫描结果,null=清除覆盖还原原文) */
     overview?: string | null;
+    /** 手动编辑的问卷备注(覆盖型:string=覆盖楼层的问卷备注段,null=清除覆盖还原原文) */
+    notes?: string | null;
     /** 按原名(from)覆盖:name=改名,text=改文;两者至少给一个 */
     update?: { from: string; name?: string; text?: string }[];
     /** 按名字移除(墓碑:此后楼层再拍到同名档案也不恢复) */

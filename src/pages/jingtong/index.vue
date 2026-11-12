@@ -2,7 +2,7 @@
 import Icon from '@/components/Icon.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ModalMask from '@/components/ModalMask.vue';
-import { editDeepProfile, editWorldOverview, removeDeepProfile } from '@/memory/apply';
+import { editDeepProfile, editQuestionnaireNotes, editWorldOverview, removeDeepProfile } from '@/memory/apply';
 import { derivedMeta, memory } from '@/memory/store';
 import type { JingtongProfile } from '@/memory/types';
 import { apiSettings } from '@/api/settings';
@@ -99,6 +99,26 @@ function saveOverviewEdit() {
   }
   overviewEditing.value = false;
   toast(overviewDraft.value.trim() ? '总览已更新' : '已还原为楼层原文', 'success');
+}
+
+/* —— 问卷备注:手动补写(覆盖层,写回最新叶子;清空保存=还原楼层原文) ——
+   备注靠扫描开局问卷楼,格式一乱就拍不到,所以这里必须有手填入口。 */
+const notesEditing = ref(false);
+const notesDraft = ref('');
+function openNotesEdit() {
+  notesDraft.value = memory.questionnaireNotes;
+  notesEditing.value = true;
+}
+function cancelNotesEdit() {
+  notesEditing.value = false;
+}
+function saveNotesEdit() {
+  if (!editQuestionnaireNotes(notesDraft.value)) {
+    toast('无法写入问卷备注,请确认当前聊天已有有效摘要。', 'error');
+    return;
+  }
+  notesEditing.value = false;
+  toast(notesDraft.value.trim() ? '问卷备注已更新' : '已还原为楼层原文', 'success');
 }
 
 /* —— 深度档案:编辑/删除(派生数据的编辑层,写回最新叶子) —— */
@@ -224,9 +244,10 @@ function confirmRemoveProfile() {
           <span>问卷备注</span>
         </button>
         <span class="bbs-jt-tag">镜瞳</span>
+        <button class="bbs-jt-act" type="button" title="编辑问卷备注" @click="openNotesEdit"><Icon name="edit" /></button>
       </div>
       <template v-if="!isSectionCollapsed('notes')">
-        <p class="bbs-jt-blockhint">玩家开局问卷里申报的事实备忘,与总览同开关、同间隔注入。此处只读展示;要修改请改开局问卷楼层后重放摘要。</p>
+        <p class="bbs-jt-blockhint">玩家开局问卷里申报的事实备忘,与总览同开关、同间隔注入。捕捉不到或想补写时点右上角编辑;清空保存=还原楼层原文。</p>
         <p v-if="memory.questionnaireNotes" class="bbs-jt-text">{{ memory.questionnaireNotes }}</p>
         <p v-else class="bbs-jt-none">暂无问卷备注。</p>
       </template>
@@ -246,6 +267,24 @@ function confirmRemoveProfile() {
         <footer class="bbs-modal-foot">
           <button class="bbs-btn" type="button" @click="cancelOverviewEdit">取消</button>
           <button class="bbs-btn bbs-btn-primary" type="button" @click="saveOverviewEdit">保存</button>
+        </footer>
+      </div>
+    </ModalMask>
+
+    <!-- 问卷备注编辑弹窗:覆盖层,楼层原文不变;清空保存=还原楼层原文 -->
+    <ModalMask :open="notesEditing" @close="cancelNotesEdit">
+      <div v-if="notesEditing" class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑问卷备注">
+        <header class="bbs-modal-head">
+          <span class="bbs-modal-title">编辑问卷备注</span>
+          <button class="bbs-jt-act" type="button" title="关闭" @click="cancelNotesEdit"><Icon name="close" /></button>
+        </header>
+        <label class="bbs-modal-field">
+          <span class="bbs-modal-label">备注正文(人物小传 / 世界设定等既定事实;清空保存=还原楼层原文)</span>
+          <textarea v-model="notesDraft" class="bbs-input bbs-jt-textarea" rows="10" placeholder="如:楚律维,42岁,楚家家主,高大儒雅;晏礼,28岁,商业巨鳄……"></textarea>
+        </label>
+        <footer class="bbs-modal-foot">
+          <button class="bbs-btn" type="button" @click="cancelNotesEdit">取消</button>
+          <button class="bbs-btn bbs-btn-primary" type="button" @click="saveNotesEdit">保存</button>
         </footer>
       </div>
     </ModalMask>

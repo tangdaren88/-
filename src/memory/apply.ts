@@ -2267,10 +2267,16 @@ export function appendOpToLatestLeaf(op: StoredDelta): boolean {
     changed = true;
   }
   if (op.jingtong) {
-    // 镜瞳手动编辑层:总览覆盖 + 档案改名/改文/删除(与 npcs 同款跨桶互斥)
-    if (op.jingtong.overview !== undefined || op.jingtong.update?.length || op.jingtong.remove?.length) changed = true;
+    // 镜瞳手动编辑层:总览/问卷备注覆盖 + 档案改名/改文/删除(与 npcs 同款跨桶互斥)
+    if (
+      op.jingtong.overview !== undefined ||
+      op.jingtong.notes !== undefined ||
+      op.jingtong.update?.length ||
+      op.jingtong.remove?.length
+    ) changed = true;
     const dj = (d.jingtong ??= {});
     if (op.jingtong.overview !== undefined) dj.overview = op.jingtong.overview;
+    if (op.jingtong.notes !== undefined) dj.notes = op.jingtong.notes;
     for (const name of op.jingtong.remove ?? []) {
       const k = norm(name);
       if (dj.update) dj.update = dj.update.filter(u => norm(u.from) !== k);
@@ -2731,6 +2737,17 @@ export function removeQuest(name: string): boolean {
 export function editWorldOverview(text: string): boolean {
   const t = text.trim();
   return appendOpToLatestLeaf({ jingtong: { overview: t ? text.replace(/\r\n/g, '\n') : null } });
+}
+
+/**
+ * 手动编辑问卷备注(覆盖型,与 editWorldOverview 同范式)。
+ *  - text 非空:覆盖从开局问卷楼层扫出的备注(问卷楼原文不变,之后每次重放都套用此覆盖);
+ *  - text 为空/纯空白:清除覆盖,还原为楼层原文(null)。
+ * 问卷备注常常捕捉不到,允许玩家直接在镜瞳页补写。
+ */
+export function editQuestionnaireNotes(text: string): boolean {
+  const t = text.trim();
+  return appendOpToLatestLeaf({ jingtong: { notes: t ? text.replace(/\r\n/g, '\n') : null } });
 }
 
 /* ============ 场景手动 op(写回最新叶子,与 editItem 同范式) ============ */
