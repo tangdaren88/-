@@ -280,7 +280,7 @@ function confirmRemoveProfile() {
         </header>
         <label class="bbs-modal-field">
           <span class="bbs-modal-label">备注正文(人物小传 / 世界设定等既定事实;清空保存=还原楼层原文)</span>
-          <textarea v-model="notesDraft" class="bbs-input bbs-jt-textarea" rows="10" placeholder="如:楚律维,42岁,楚家家主,高大儒雅;晏礼,28岁,商业巨鳄……"></textarea>
+          <textarea v-model="notesDraft" class="bbs-input bbs-jt-textarea" rows="10"></textarea>
         </label>
         <footer class="bbs-modal-foot">
           <button class="bbs-btn" type="button" @click="cancelNotesEdit">取消</button>
