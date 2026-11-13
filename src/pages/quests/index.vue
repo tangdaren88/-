@@ -4,7 +4,7 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SummaryOnlyNotice from '@/components/SummaryOnlyNotice.vue';
-import { editQuest, importQuestOutline, removeQuest, upsertQuest } from '@/memory/apply';
+import { clearQuests, editQuest, importQuestOutline, removeQuest, upsertQuest } from '@/memory/apply';
 import { buildQuestDraft } from '@/memory/inject';
 import { parseQuestOutline } from '@/memory/questOutline';
 import { apiSettings } from '@/api/settings';
@@ -247,6 +247,15 @@ function confirmRemoveQuest() {
   questRemoving.value = null;
 }
 
+/* —— 一键清除:主线/支线分组各一个按钮,该类进行中任务连整棵子任务树一起删 —— */
+const questClearing = ref<'main' | 'side' | null>(null);
+function confirmClearQuests() {
+  const kind = questClearing.value;
+  if (!kind) return;
+  if (!clearQuests(kind)) toast('没有可写入的摘要楼层(先补摘一次)', 'error');
+  questClearing.value = null;
+}
+
 /* —— 推进草稿:仿场景页「前往地点」,只生成草稿填输入框,不提前改记忆 —— */
 const questDrafting = ref<MemQuest | null>(null);
 function askQuestDraft(q: MemQuest) {
@@ -381,7 +390,7 @@ function confirmOutlineImport() {
             <em>开启:随剧情摘要自动回报任务并注入主模型防目标线写丢。关闭:不再注入、摘要也不再捕捉任务(已有记录保留,重新打开即恢复);仍可手动增删改回看。</em>
           </span>
         </label>
-        <p class="bbs-npc-mainhint">主线推动剧情的核心目标,支线是可接可不做的委托;随剧情自动捕捉演化,完成/失败后移入下方「已完结」归档(不再注入)。点 + 手动添加,点卡片上的 + 添加其子任务,点卡片上的 → 生成剧情推进草稿。</p>
+        <p class="bbs-npc-mainhint">主线推动剧情的核心目标,支线是可接可不做的委托;随剧情自动捕捉演化,完成/失败后移入下方「已完结」归档(不再注入)。点 + 手动添加,点卡片上的 + 添加其子任务,点卡片上的 → 生成剧情推进草稿;分组标题右侧的垃圾桶可一键清空该类任务(含子任务)。</p>
 
         <!-- 主线 -->
         <div class="bbs-npc-group">
@@ -399,6 +408,7 @@ function confirmOutlineImport() {
             </button>
             <button class="bbs-add-mini" type="button" title="批量导入主线任务" @click="openQuestImport('main')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加主线任务" @click="openQuestAdd('main')"><Icon name="plus" /></button>
+            <button v-if="mainCount" class="bbs-add-mini bbs-item-del" type="button" title="一键清除全部主线任务(含子任务)" @click="questClearing = 'main'"><Icon name="trash" /></button>
           </div>
           <div v-if="!collapsed.main" class="bbs-npc-list">
             <template v-if="mainRows.length">
@@ -457,6 +467,7 @@ function confirmOutlineImport() {
             </button>
             <button class="bbs-add-mini" type="button" title="批量导入支线任务" @click="openQuestImport('side')"><Icon name="download" /></button>
             <button class="bbs-add-mini" type="button" title="添加支线任务" @click="openQuestAdd('side')"><Icon name="plus" /></button>
+            <button v-if="sideCount" class="bbs-add-mini bbs-item-del" type="button" title="一键清除全部支线任务(含子任务)" @click="questClearing = 'side'"><Icon name="trash" /></button>
           </div>
           <div v-if="!collapsed.side" class="bbs-npc-list">
             <template v-if="sideRows.length">
@@ -658,6 +669,19 @@ function confirmOutlineImport() {
         @cancel="questRemoving = null"
       >
         删除任务「{{ questRemoving?.name }}」?其子任务不会被连带删除,会自动升为顶级(可再编辑改指其他父级)。删除会写入最新摘要,此后不会再被捕捉恢复。若只是不想再跟踪,建议改成「已完成/已失败」归档保留。
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        :open="!!questClearing"
+        title="一键清除任务"
+        tone="danger"
+        confirm-text="全部清除"
+        confirm-icon="trash"
+        @update:open="v => { if (!v) questClearing = null; }"
+        @confirm="confirmClearQuests"
+        @cancel="questClearing = null"
+      >
+        清除全部{{ questClearing === 'side' ? '支线' : '主线' }}任务?每棵顶级任务连其下所有子任务整树删除;已完结归档的任务保留。清除会写入最新摘要,此后不会再被捕捉恢复。
       </ConfirmDialog>
 
       <ConfirmDialog

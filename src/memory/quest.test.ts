@@ -5,7 +5,7 @@
  *  - 手动父任务改名的级联 op 形状(remove+add+子任务 parent 批量 update)在重放层生效
  */
 import { describe, expect, it } from 'vitest';
-import { deriveMemory } from './apply';
+import { deriveMemory, questClearTargets } from './apply';
 import { buildQuestDraft } from './inject';
 import { parseQuestOutline } from './questOutline';
 import type { MemQuest } from './types';
@@ -96,6 +96,56 @@ describe('任务子任务树(重放层)', () => {
     expect(mem.quests.some(q => q.name === '东海历练')).toBe(true);
     expect(mem.quests.find(q => q.name === '收集船票')?.parent).toBe('东海历练');
     expect(mem.quests.find(q => q.name === '打探航线')?.parent).toBe('东海历练');
+  });
+});
+
+describe('一键清除(questClearTargets)', () => {
+  /** 主线A→A1→A1a 三层树 + 归档主线B + 支线C→C1,清主线不该误伤支线与归档 */
+  function treeMemory() {
+    return deriveMemory([
+      msg('剧情。', {
+        quests: {
+          add: [
+            { name: '主线A', kind: 'main' },
+            { name: '子任务A1', parent: '主线A' },
+            { name: '子任务A1a', parent: '子任务A1' },
+            { name: '主线B', kind: 'main' },
+            { name: '支线C', kind: 'side' },
+            { name: '子任务C1', kind: 'side', parent: '支线C' },
+          ],
+        },
+      }),
+      msg('后文。', { quests: { update: [{ name: '主线B', status: 'done' }] } }),
+    ]);
+  }
+  it('清主线:整棵子树入列(含孙级),归档与支线不动', () => {
+    const mem = treeMemory();
+    expect(questClearTargets(mem.quests, 'main')).toEqual(['主线A', '子任务A1', '子任务A1a']);
+  });
+  it('清支线:只动支线树,主线树不误伤', () => {
+    const mem = treeMemory();
+    expect(questClearTargets(mem.quests, 'side')).toEqual(['支线C', '子任务C1']);
+  });
+  it('名单经一次 remove op 重放后整树删除,其余任务原样保留', () => {
+    const m1 = msg('剧情。', {
+      quests: {
+        add: [
+          { name: '主线A', kind: 'main' },
+          { name: '子任务A1', parent: '主线A' },
+          { name: '支线C', kind: 'side' },
+        ],
+      },
+    });
+    const targets = questClearTargets(deriveMemory([m1]).quests, 'main');
+    const m2 = msg('手动清除。', { quests: { remove: targets } });
+    const mem = deriveMemory([m1, m2]);
+    expect(mem.quests.map(q => q.name)).toEqual(['支线C']);
+  });
+  it('父悬空的该类任务视作顶级,照样整树清除', () => {
+    const mem = deriveMemory([
+      msg('剧情。', { quests: { add: [{ name: '孤线', kind: 'main', parent: '不存在的父' }, { name: '孤线之子', parent: '孤线' }] } }),
+    ]);
+    expect(questClearTargets(mem.quests, 'main')).toEqual(['孤线', '孤线之子']);
   });
 });
 

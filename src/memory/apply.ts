@@ -2732,6 +2732,42 @@ export function removeQuest(name: string): boolean {
 }
 
 /**
+ * 一键清除要删的任务名单(纯函数,便于单测):
+ * 该类进行中的每棵顶级任务(无父/父悬空)连整棵子任务树一起入列;
+ * 归档任务不动,该类之外的顶级任务及其子树也不动。
+ */
+export function questClearTargets(quests: MemQuest[], kind: 'main' | 'side'): string[] {
+  const key = (s: string): string => norm(s);
+  const active = quests.filter(q => q.status === 'active');
+  const alive = new Set(active.map(q => key(q.name)));
+  const doomed = new Set<string>();
+  const collect = (name: string): void => {
+    const k = key(name);
+    if (!k || doomed.has(k)) return;
+    doomed.add(k);
+    for (const q of active) if (key(q.parent ?? '') === k) collect(q.name);
+  };
+  for (const q of active) {
+    if (q.kind !== kind) continue;
+    const p = (q.parent ?? '').trim();
+    if (!p || !alive.has(key(p))) collect(q.name);
+  }
+  return active.filter(q => doomed.has(key(q.name))).map(q => q.name);
+}
+
+/**
+ * 一键清除某类进行中任务(主线/支线各一个按钮,换书前清空任务板用)。
+ * 与单删不同:该类下的每棵顶级任务连整棵子任务树一起删,一次 op 写完;
+ * 已完结归档的任务不动(归档是剧情脉络,只在「已完结」区单独删)。
+ * 无可删任务或无有效叶子返回 false。
+ */
+export function clearQuests(kind: 'main' | 'side'): boolean {
+  const remove = questClearTargets(memory.quests, kind);
+  if (!remove.length) return false;
+  return appendOpToLatestLeaf({ quests: { remove } });
+}
+
+/**
  * 手动编辑世界观总览(覆盖型,写回最新叶子)。
  *  - text 非空:覆盖楼层扫描出的总览(楼层原文不变,之后每次重放都套用此覆盖);
  *  - text 为空/纯空白:清除覆盖,还原为楼层原文(null)。
