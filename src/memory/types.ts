@@ -200,7 +200,7 @@ export interface MemNpc extends NpcAffinity {
   ties?: string;
   /** 身份/职业一句话(不在场时唯一保留的信息) */
   title?: string;
-  /** 固定外貌:发色/身材/疤痕等长期不变的体貌(档案层,高门槛,几乎不更新) */
+  /** 固定外貌:五官/发色/身材/疤痕等长期不变的体貌(档案层,高门槛,几乎不更新) */
   desc?: string;
   /** 简单性格 */
   personality?: string;

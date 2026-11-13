@@ -857,7 +857,7 @@ function deleteKnow(k: MemKnowledge) {
           <textarea v-model="draft.personality" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="如:沉默寡言、护短"></textarea>
         </label>
         <label class="bbs-modal-field">
-          <span class="bbs-modal-label">外貌描述(固定特征:发色 / 身材 / 疤痕,勿写穿着)</span>
+          <span class="bbs-modal-label">外貌描述(固定特征:五官 / 发色 / 身材 / 疤痕,勿写穿着)</span>
           <textarea v-model="draft.desc" class="bbs-input bbs-modal-textarea" rows="2" placeholder="可选"></textarea>
         </label>
         <label class="bbs-modal-field">
@@ -933,7 +933,7 @@ function deleteKnow(k: MemKnowledge) {
           <textarea v-model="editing.personality" v-autosize class="bbs-input bbs-modal-textarea bbs-modal-autogrow" rows="1" placeholder="如:沉默寡言、护短"></textarea>
         </label>
         <label class="bbs-modal-field">
-          <span class="bbs-modal-label">外貌描述(固定特征:发色 / 身材 / 疤痕,勿写穿着)</span>
+          <span class="bbs-modal-label">外貌描述(固定特征:五官 / 发色 / 身材 / 疤痕,勿写穿着)</span>
           <textarea v-model="editing.desc" class="bbs-input bbs-modal-textarea" rows="2" placeholder="可选"></textarea>
         </label>
         <label class="bbs-modal-field">
