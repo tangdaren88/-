@@ -189,4 +189,22 @@ describe('整本大纲解析(parseQuestOutline)', () => {
     expect(side?.name).toContain('（主线任务A进行期间可接');
     expect(list.find(q => q.name === '记录棺内异象')).toMatchObject({ kind: 'side', parent: side?.name });
   });
+
+  it('三级及更深的子任务:2.1.1 顺着 2.1 → 2 逐层挂靠', () => {
+    const list = parseQuestOutline([
+      '主线任务A：九龙拉棺·告别地球',
+      '子任务2：探查五色祭坛异动',
+      '子任务2.1：稳住恐慌的众人',
+      '子任务2.1.1：先压住最慌的几个',
+      '子任务2.1.2：分成三队清点人数',
+      '子任务2.2：应对九龙拉棺降临',
+    ].join('\n'));
+    const by = (n: string) => list.find(q => q.name === n);
+    expect(by('子任务2')).toBeUndefined();
+    expect(by('探查五色祭坛异动')?.parent).toBe('九龙拉棺·告别地球');
+    expect(by('稳住恐慌的众人')?.parent).toBe('探查五色祭坛异动');
+    expect(by('先压住最慌的几个')?.parent).toBe('稳住恐慌的众人');
+    expect(by('分成三队清点人数')?.parent).toBe('稳住恐慌的众人');
+    expect(by('应对九龙拉棺降临')?.parent).toBe('探查五色祭坛异动');
+  });
 });

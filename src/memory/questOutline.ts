@@ -164,17 +164,18 @@ export function parseQuestOutline(raw: string): OutlineQuest[] {
 
   const attachChildLine = (line: string) => {
     if (!curParent) return;
+    // 序号表按「当前篇章(主线/支线)」记,不按直接父级记 —— 这样 2.1.1 也能顺着 2.1 → 2 找回上级
+    const scope = curParent.name;
     for (const item of splitChildItems(line)) {
-      // 多级序号:2.1 挂到同级 2 的名下(找不到父序号就仍挂当前任务)
       let owner = curParent.name;
       if (item.num.includes('.')) {
         const prefix = item.num.slice(0, item.num.lastIndexOf('.'));
-        owner = siblingByNum(curParent.name, prefix) ?? owner;
+        owner = siblingByNum(scope, prefix) ?? owner;
       }
       const e = push(item.name, curParent.kind, owner);
       if (e) {
         last = e;
-        rememberNum(owner, item.num, item.name);
+        rememberNum(scope, item.num, item.name);
       }
     }
   };
