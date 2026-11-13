@@ -2708,15 +2708,17 @@ export function editQuest(
 /**
  * 整本大纲导入:一次 op 写入一批任务(父在前、子在后,child.parent 引用父任务名)。
  * 条目由 questOutline.parseQuestOutline 解析,调用方负责去重;无有效叶子或没有条目返回 false。
+ * desc 来自大纲里的「描述：」行,写进任务的目标描述。
  */
 export function importQuestOutline(
-  entries: { name: string; kind: 'main' | 'side'; parent?: string }[],
+  entries: { name: string; kind: 'main' | 'side'; parent?: string; desc?: string }[],
 ): boolean {
   const adds = entries
     .map(e => ({
       name: e.name.trim(),
       kind: e.kind,
       parent: e.parent?.trim() || undefined,
+      desc: e.desc?.trim() || undefined,
     }))
     .filter(e => !!e.name);
   if (!adds.length) return false;

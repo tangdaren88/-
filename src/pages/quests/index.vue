@@ -370,7 +370,7 @@ function confirmOutlineImport() {
             </button>
           </div>
           <p class="bbs-quest-outline-hint">
-            把 AI 拆好的整本任务大纲整段粘进来(如「主线任务A：考入书院 子任务1、子任务2；支线任务B：…」),自动拆成主线/支线及其子任务,一次性建好整棵树。
+            把 AI 拆好的整本任务大纲整段粘进来(支持「主线任务A：任务名 / 描述：… / 子任务1：… / 支线任务B：任务名（主线任务A期间可接）」),自动拆成主线/支线及其子任务,「描述：」会写进任务的目标描述。
           </p>
         </div>
 
@@ -555,7 +555,7 @@ function confirmOutlineImport() {
               v-model="outlineImporting"
               class="bbs-input bbs-modal-textarea"
               rows="10"
-              placeholder="主线任务A：考入天枢书院&#10;子任务1：报名&#10;子任务2：初试&#10;主线任务B：南海历练&#10;子任务1：登船南下&#10;支线任务C：寻找旧友&#10;子任务1：打听下落"
+              placeholder="主线任务A：九龙拉棺·告别地球&#10;描述：带全班同学经历九龙拉棺之变并保住性命&#10;子任务1：夜登泰山赴同学聚会&#10;描述：与老同学重聚，一同夜登泰山&#10;支线任务B：九龙拉棺之谜（主线任务A进行期间可接）&#10;描述：追查青铜古棺的来历"
             ></textarea>
           </label>
           <div v-if="outlineParsed.length" class="bbs-outline-preview">
@@ -563,9 +563,10 @@ function confirmOutlineImport() {
               识别到 {{ outlineParents.length }} 条任务、{{ outlineChildCount }} 个子任务<template v-if="outlineDupCount">,其中 {{ outlineDupCount }} 条与现有任务重名将跳过</template>
             </p>
             <ul class="bbs-outline-list">
-              <li v-for="(q, i) in outlineParsed.slice(0, 12)" :key="i" :class="{ 'is-child': !!q.parent }">
+              <li v-for="(q, i) in outlineParsed.slice(0, 12)" :key="i" :class="{ 'is-child': !!q.parent }" :title="q.desc || ''">
                 <span class="bbs-outline-kind" :class="q.kind">{{ q.kind === 'main' ? '主线' : '支线' }}</span>
                 <span class="bbs-outline-name">{{ q.name }}</span>
+                <em v-if="q.desc" class="bbs-outline-parent">含描述</em>
                 <em v-if="q.parent" class="bbs-outline-parent">隶属 {{ q.parent }}</em>
               </li>
             </ul>

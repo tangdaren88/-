@@ -138,4 +138,55 @@ describe('整本大纲解析(parseQuestOutline)', () => {
     expect(list.map(q => q.name)).toEqual(['考学校', '历练', '飞升']);
     expect(list.every(q => q.kind === 'main' && !q.parent)).toBe(true);
   });
+
+  it('描述行归目标描述、不进子任务;支线括注不被切断;2.1 挂到 2 名下', () => {
+    const outline = [
+      '主线任务A：九龙拉棺·告别地球',
+      '描述：带全班同学经历九龙拉棺之变并保住性命，弄清铜棺要把众人带往何处；全员入棺、平安飞离地球即算完成。',
+      '子任务1：夜登泰山赴同学聚会',
+      '描述：与庞博、李小曼等老同学重聚，一同夜登泰山；全员抵达山顶集合即算完成。',
+      '子任务2：探查五色祭坛异动',
+      '描述：查山顶五色祭坛与古殿异响，在祭坛启动前让众人有所警觉；发现异动迹象并示警即算完成。',
+      '子任务2.1：稳住恐慌的众人',
+      '描述：安抚慌乱的同学，阻止有人擅自离队；无人乱跑、听你调度即算完成。',
+      '子任务2.2：应对九龙拉棺降临',
+      '描述：九龙拉棺破空而至时护住众人；全员平安登棺即算完成。',
+      '',
+      '支线任务B：九龙拉棺之谜（主线任务A进行期间可接，主线任务U·打上仙路前后收尾）',
+      '描述：追查九龙拉棺与青铜古棺的来历，弄清它为何选中众人；查明铜棺来历的关键线索即算完成。',
+      '子任务1：记录棺内异象',
+      '描述：记下棺内铭文、尸骸与星空航线等细节，形成一份线索记录即算完成。',
+      '子任务2：沿途比对古老传说',
+      '描述：每到一地打听与九龙拉棺相关的传说并互相印证；凑齐三条以上可信线索即算完成。',
+    ].join('\n');
+
+    const list = parseQuestOutline(outline);
+    expect(list.map(q => q.name)).toEqual([
+      '九龙拉棺·告别地球',
+      '夜登泰山赴同学聚会',
+      '探查五色祭坛异动',
+      '稳住恐慌的众人',
+      '应对九龙拉棺降临',
+      '九龙拉棺之谜（主线任务A进行期间可接，主线任务U·打上仙路前后收尾）',
+      '记录棺内异象',
+      '沿途比对古老传说',
+    ]);
+
+    // 描述写进 desc,不会变成子任务
+    const mainA = list.find(q => q.name === '九龙拉棺·告别地球');
+    expect(mainA?.kind).toBe('main');
+    expect(mainA?.desc).toContain('带全班同学');
+    expect(list.find(q => q.name === '夜登泰山赴同学聚会')?.desc).toContain('庞博');
+
+    // 子任务归属正确:2.1/2.2 挂在「探查五色祭坛异动」下,不在顶级
+    expect(list.find(q => q.name === '探查五色祭坛异动')?.parent).toBe('九龙拉棺·告别地球');
+    expect(list.find(q => q.name === '稳住恐慌的众人')?.parent).toBe('探查五色祭坛异动');
+    expect(list.find(q => q.name === '应对九龙拉棺降临')?.parent).toBe('探查五色祭坛异动');
+
+    // 支线保留括注,类型=支线,子任务继承支线
+    const side = list.find(q => q.name.startsWith('九龙拉棺之谜'));
+    expect(side?.kind).toBe('side');
+    expect(side?.name).toContain('（主线任务A进行期间可接');
+    expect(list.find(q => q.name === '记录棺内异象')).toMatchObject({ kind: 'side', parent: side?.name });
+  });
 });
