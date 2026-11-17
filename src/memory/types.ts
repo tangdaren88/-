@@ -467,6 +467,14 @@ export interface JingtongProfile {
 }
 
 /**
+ * 角色在「镜瞳拍摄」周期里的当前阶段(派生缓存,key=normName):
+ *  - recommended:名册有记录但还没被拍过(镜瞳推荐);
+ *  - shot / reshot:当前有深度档案(撤出后再次拍到 = reshot);
+ *  - withdrawn / rewithdrawn:档案被手动删除(撤出),二次撤出 = 再拍又删。
+ */
+export type ProfileStage = 'recommended' | 'shot' | 'reshot' | 'withdrawn' | 'rewithdrawn';
+
+/**
  * 问卷回执解析出的关系网 NPC(派生缓存):玩家在【问卷回执】里自填的
  * 父母/兄弟姐妹/寄宿家庭/恋人等,不必等正文出场就进名册(desc=玩家原文)。
  */
@@ -603,6 +611,8 @@ export interface BaibaiMemory {
   questionnaireNotes: string;
   /** 派生缓存:镜瞳深度档案(按名字去重,同名取最新楼层;客观基底,不受重总结影响) */
   deepProfiles: JingtongProfile[];
+  /** 派生缓存:各角色的拍摄阶段(已推荐/已拍摄/已撤出/已二次拍摄/已二次撤出;key=normName) */
+  profileStages: Map<string, ProfileStage>;
   /** 真源镜像:三层变量定义模板(global/char 来自 settings,chat 来自 chatMetadata) */
   varTemplates: Record<VarTier, VarTemplate>;
   /** 派生缓存:变量当前状态(从合并模板起、fold 各叶子 varOps 得到的 JSON 树) */
@@ -623,6 +633,7 @@ export function createEmptyMemory(): BaibaiMemory {
     worldOverview: '',
     questionnaireNotes: '',
     deepProfiles: [],
+    profileStages: new Map(),
     scenes: [],
     npcs: [],
     factions: [],

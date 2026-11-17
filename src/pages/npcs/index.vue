@@ -3,6 +3,7 @@ import { apiSettings } from '@/api/settings';
 import Icon from '@/components/Icon.vue';
 import BbsSelect from '@/components/BbsSelect.vue';
 import { fmtLifeDetail, lifeDetailSubject } from '@/memory/lifeDetails';
+import { normName } from '@/memory/jingtong';
 import { NPC_AFFINITY_FIELDS, affinityLevelFromInput, fmtNpcAffinity } from '@/memory/npcRelations';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import ModalMask from '@/components/ModalMask.vue';
@@ -11,13 +12,38 @@ import { classifyNpcPresence, editNpc, removeNpc, setNpcFollow, setNpcImportant,
 import { knowledgeOf, sameKnowledge } from '@/memory/knowledge';
 import { derivedMeta, memory } from '@/memory/store';
 import { ageDisplay } from '@/memory/timeRel';
-import type { MemKnowledge, MemLifeDetail, MemNpc } from '@/memory/types';
+import type { MemKnowledge, MemLifeDetail, MemNpc, ProfileStage } from '@/memory/types';
 import { getContext } from '@/st/context';
 import { toast } from '@/st/toast';
 import { computed, nextTick, ref } from 'vue';
 
 // NPC 是从叶子摘要重放出的派生数据,手动操作写入「最新一条有效叶子」;无有效叶子时无处挂载。
 const hasLeaf = computed(() => derivedMeta.hasLeaf);
+
+/* —— 拍摄阶段徽标(镜瞳周期:已推荐 → 已拍摄 → 已撤出 → 已二次拍摄 → 已二次撤出) —— */
+const STAGE_LABEL: Record<ProfileStage, string> = {
+  recommended: '已推荐',
+  shot: '已拍摄',
+  reshot: '已二次拍摄',
+  withdrawn: '已撤出',
+  rewithdrawn: '已二次撤出',
+};
+const STAGE_TITLE: Record<ProfileStage, string> = {
+  recommended: '名册有记录,还没被镜瞳拍过深度档案',
+  shot: '已有镜瞳深度档案',
+  reshot: '撤出后再次被拍,深度档案已恢复',
+  withdrawn: '深度档案已删除(撤出);再拍到会变「已二次拍摄」',
+  rewithdrawn: '二次拍摄后再次撤出',
+};
+function profileStage(n: MemNpc): ProfileStage {
+  return memory.profileStages.get(normName(n.name)) ?? 'recommended';
+}
+function stageLabel(n: MemNpc): string {
+  return STAGE_LABEL[profileStage(n)];
+}
+function stageTitle(n: MemNpc): string {
+  return STAGE_TITLE[profileStage(n)];
+}
 const protagonistName = computed(() => {
   void derivedMeta.rev;
   return getContext()?.name1?.trim() || '主角';
@@ -539,6 +565,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
+                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -579,6 +606,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
+                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -637,6 +665,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
+                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -687,6 +716,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
+                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -1216,6 +1246,36 @@ function deleteKnow(k: MemKnowledge) {
   align-items: center;
   gap: 2px;
   margin-left: auto;
+}
+
+/* —— 拍摄阶段徽标:已推荐(灰)/已拍摄(强调)/已二次拍摄(强调实底)/已撤出(警示)/已二次撤出(危险实底) —— */
+.bbs-npc-stage {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--bbs-radius-pill, 999px);
+  line-height: 1.5;
+}
+.bbs-npc-stage.is-recommended {
+  background: var(--bbs-surface-2);
+  color: var(--bbs-ink-muted);
+}
+.bbs-npc-stage.is-shot {
+  background: var(--bbs-accent-soft);
+  color: var(--bbs-accent);
+}
+.bbs-npc-stage.is-reshot {
+  background: var(--bbs-accent);
+  color: var(--bbs-surface, #fff);
+}
+.bbs-npc-stage.is-withdrawn {
+  background: var(--bbs-warning-soft);
+  color: var(--bbs-warning);
+}
+.bbs-npc-stage.is-rewithdrawn {
+  background: var(--bbs-danger);
+  color: var(--bbs-surface, #fff);
 }
 
 /* —— 字段表:身份/性格/外貌统一成「彩色类别标签 + 内容」的对齐行。

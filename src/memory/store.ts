@@ -5,7 +5,7 @@ import { deriveMemory, getLeaf, leafValid } from './apply';
 import { isAiFloor, pendingAiFloors } from './engine';
 import { normName, scanJingtong } from './jingtong';
 import { latestStoryTime } from './timeTag';
-import type { BaibaiMemory, LeafExtra, MemSummary, StoredDelta, VarTemplate, VarTier } from './types';
+import type { BaibaiMemory, LeafExtra, MemSummary, ProfileStage, StoredDelta, VarTemplate, VarTier } from './types';
 import { createEmptyMemory, MEMORY_KEY, MEMORY_VERSION, normalizeTemplate } from './types';
 
 /**
@@ -87,21 +87,55 @@ export function recomputeDerived(): void {
   }
   memory.worldOverview = overviewOverride !== undefined && overviewOverride !== null ? overviewOverride : scan.worldOverview;
   // 固定档案手动编辑层:叶子 delta.jingtong 的改名/改文/删除,按楼层顺序重放(后写覆盖先写);
-  // 档案本体始终来自楼层原文,编辑只作覆盖 —— 删除是墓碑,此后再拍到同名也不恢复
+  // 档案本体始终来自楼层原文,编辑只作覆盖 —— 删除是「撤出」:压掉不晚于删除楼层的档案,
+  // 之后楼层再拍到同名 = 二次拍摄(档案回来,阶段标签同步流转)。
   {
     const pEdits = new Map<string, { name?: string; text?: string }>();
-    const pTombs = new Set<string>();
-    for (const m of chat ?? []) {
-      const jt = getLeaf(m)?.delta?.jingtong;
+    const removeFloors = new Map<string, number[]>();
+    const msgs = chat ?? [];
+    for (let i = 0; i < msgs.length; i++) {
+      const jt = getLeaf(msgs[i])?.delta?.jingtong;
       if (!jt) continue;
       for (const r of jt.remove ?? []) {
-        pTombs.add(normName(r));
-        pEdits.delete(normName(r));
+        const k = normName(r);
+        const arr = removeFloors.get(k) ?? [];
+        arr.push(i);
+        removeFloors.set(k, arr);
+        pEdits.delete(k);
       }
       for (const u of jt.update ?? []) pEdits.set(normName(u.from), u);
     }
+    // 拍摄阶段:按楼层归并「拍摄(档案块出现)」与「撤出(手动删除)」;
+    // 同楼先拍后撤(撤出赢),撤出后再拍算新一拍。从未上榜的名册角色默认已推荐(页面兜底)。
+    const stages = new Map<string, ProfileStage>();
+    const names = new Set<string>([...scan.profileFloors.keys(), ...removeFloors.keys()]);
+    for (const k of names) {
+      const sh = scan.profileFloors.get(k) ?? [];
+      const rm = removeFloors.get(k) ?? [];
+      let si = 0;
+      let ri = 0;
+      let profiled = false;
+      let shootCount = 0;
+      let removedCount = 0;
+      while (si < sh.length || ri < rm.length) {
+        if (ri >= rm.length || sh[si] <= rm[ri]) {
+          if (!profiled) shootCount++; // 初次拍摄或撤出后的再次拍摄
+          profiled = true;
+          si++;
+        } else {
+          profiled = false;
+          removedCount++;
+          ri++;
+        }
+      }
+      stages.set(k, profiled ? (shootCount >= 2 ? 'reshot' : 'shot') : removedCount >= 2 ? 'rewithdrawn' : 'withdrawn');
+    }
+    memory.profileStages = stages;
     memory.deepProfiles = scan.profiles
-      .filter(p => !pTombs.has(normName(p.name)))
+      .filter(p => {
+        const st = stages.get(normName(p.name));
+        return st === 'shot' || st === 'reshot';
+      })
       .map(p => {
         const e = pEdits.get(normName(p.name));
         if (!e) return p;

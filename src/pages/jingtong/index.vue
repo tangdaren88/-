@@ -321,7 +321,7 @@ function confirmRemoveProfile() {
       @confirm="confirmRemoveProfile"
       @cancel="profileRemoving = null"
     >
-      删除「{{ profileRemoving?.name }}」的镜瞳固定档案。此后楼层再拍到同名档案也不会恢复(可重新拍摄覆盖)。
+      删除「{{ profileRemoving?.name }}」的镜瞳固定档案(记一次「撤出」,角色栏会标「已撤出」)。此后剧情里若再拍到同名档案,档案会重新出现并标「已二次拍摄」;不想让它再出现,让 AI 别再拍 TA 即可。
     </ConfirmDialog>
   </section>
 </template>

@@ -25,6 +25,8 @@ export interface JingtongScan {
   worldOverview: string;
   /** 深度档案(按名字去重,同名取最新楼层) */
   profiles: JingtongProfile[];
+  /** 每个名字出现档案块的楼层号列表(升序;「已拍摄/已撤出/已二次…」阶段跟踪用) */
+  profileFloors: Map<string, number[]>;
   /** 问卷回执解析出的关系网 NPC(最后一次问卷为准;name=抽出的人名) */
   questionnaireNpcs: QuestionnaireNpc[];
   /** 问卷回执里的主角信息(客观字段仅兜底填空;goals/secrets 供计划/悬念种子) */
@@ -317,8 +319,8 @@ function expandHeadLine(line: string): string {
   return rows.join('\n');
 }
 
-/** 从单楼正文提取全部「┌ 镜瞳·深度档案 ─…└」块,按名字写入 out(同名后到覆盖先到)。闭栏缺失时兜底截断,同总览。 */
-function extractProfiles(text: string, floor: number, out: Map<string, JingtongProfile>): void {
+/** 从单楼正文提取全部「┌ 镜瞳·深度档案 ─…└」块,按名字写入 out(同名后到覆盖先到);floors 记每个名字的拍过楼层。闭栏缺失时兜底截断,同总览。 */
+function extractProfiles(text: string, floor: number, out: Map<string, JingtongProfile>, floors: Map<string, number[]>): void {
   const re = /┌[^\n]*镜瞳[·・]深度档案[^\n]*\n([\s\S]*?)(?=\r?\n[^\S\n]*└|\r?\n\s*┌|<\/game>|<jt_status>|$)/g;
   for (const m of text.matchAll(re)) {
     const lines = m[1]
@@ -333,7 +335,11 @@ function extractProfiles(text: string, floor: number, out: Map<string, JingtongP
     if (hm) name = hm[1].split(/[｜|]/)[0].trim();
     if (!name) continue;
     const kept = lines.map(l => (/^(姓名|名字)/.test(l) ? expandHeadLine(l) : l)).filter(l => !PROFILE_LINE_SKIP.test(l));
-    out.set(normName(name), { name, text: kept.join('\n'), floor });
+    const key = normName(name);
+    out.set(key, { name, text: kept.join('\n'), floor });
+    const arr = floors.get(key) ?? [];
+    arr.push(floor);
+    floors.set(key, arr);
   }
 }
 
@@ -429,6 +435,7 @@ function parseNotesSection(text: string): string {
 /** 扫全 chat:世界观总览(最后一次)、深度档案(同名取最新)、问卷(最后一次) */
 export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan {
   const profiles = new Map<string, JingtongProfile>();
+  const profileFloors = new Map<string, number[]>();
   let worldOverview = '';
   let questionnaireNpcs: QuestionnaireNpc[] = [];
   let factions: JingtongFaction[] = [];
@@ -448,7 +455,7 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
         worldOverview = ov;
         factions = extractFactions(ov); // 势力种子跟随最后一次总览(与 worldOverview 同源)
       }
-      extractProfiles(text, i, profiles);
+      extractProfiles(text, i, profiles, profileFloors);
       if (QS_HEADER.test(text)) {
         const f = parseQuestionnaireFields(text);
         const npcs = buildQuestionnaireNpcs(f);
@@ -483,5 +490,5 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
       }
     }
   }
-  return { worldOverview, profiles: [...profiles.values()], questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
+  return { worldOverview, profiles: [...profiles.values()], profileFloors, questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
 }

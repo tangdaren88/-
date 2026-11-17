@@ -162,3 +162,59 @@ describe('问卷深建档', () => {
     spy.mockRestore();
   });
 });
+
+const PROFILE = [
+  '┌ 镜瞳·深度档案 ─────────',
+  '姓名：周砚清',
+  '职业：自由插画师',
+  '└────────────────',
+].join('\n');
+
+describe('拍摄阶段(已推荐/已拍摄/已撤出/已二次拍摄/已二次撤出)', () => {
+  function op(mes: string, remove: string[]): STMessage {
+    const m = msg(mes);
+    m.extra = { bbs_leaf: { id: `stage-${Math.random().toString(36).slice(2)}`, delta: { jingtong: { remove } } } } as STMessage['extra'];
+    return m;
+  }
+  function calc(chat: STMessage[]): void {
+    vi.spyOn(context, 'getContext').mockReturnValue({ chat, getCurrentChatId: () => 'stage-test' } as unknown as STContext);
+    Object.assign(memory, createEmptyMemory());
+    recomputeDerived();
+  }
+
+  it('拍过=已拍摄;反复重拍(无撤出)不升级;撤出=已撤出且档案消失', () => {
+    calc([msg(PROFILE), msg('剧情。'), msg(PROFILE)]);
+    expect(memory.profileStages.get('周砚清')).toBe('shot');
+    expect(memory.deepProfiles.some(p => p.name === '周砚清')).toBe(true);
+
+    calc([msg(PROFILE), op('剧情。', ['周砚清']), msg('后文。')]);
+    expect(memory.profileStages.get('周砚清')).toBe('withdrawn');
+    expect(memory.deepProfiles.some(p => p.name === '周砚清')).toBe(false);
+  });
+
+  it('撤出后再拍=已二次拍摄,档案恢复;再撤=已二次撤出', () => {
+    calc([msg(PROFILE), op('剧情。', ['周砚清']), msg(PROFILE), op('后文。', ['周砚清'])]);
+    expect(memory.profileStages.get('周砚清')).toBe('rewithdrawn');
+    expect(memory.deepProfiles.some(p => p.name === '周砚清')).toBe(false);
+
+    calc([msg(PROFILE), op('剧情。', ['周砚清']), msg(PROFILE)]);
+    expect(memory.profileStages.get('周砚清')).toBe('reshot');
+    expect(memory.deepProfiles.some(p => p.name === '周砚清')).toBe(true);
+  });
+
+  it('同楼先拍后撤:撤出赢(档案仍被压掉)', () => {
+    calc([msg(PROFILE), op(PROFILE, ['周砚清'])]);
+    expect(memory.profileStages.get('周砚清')).toBe('withdrawn');
+    expect(memory.deepProfiles.some(p => p.name === '周砚清')).toBe(false);
+  });
+
+  it('手动编辑覆盖仍生效;旧墓碑语义改为楼层序:删除楼层之前的重复拍摄不受影响', () => {
+    const m2 = msg('剧情。');
+    m2.extra = {
+      bbs_leaf: { id: 'stage-edit', delta: { jingtong: { update: [{ from: '周砚清', text: '职业：画廊主理人' }] } } },
+    } as STMessage['extra'];
+    calc([msg(PROFILE), m2]);
+    expect(memory.deepProfiles.find(p => p.name === '周砚清')?.text).toContain('画廊主理人');
+    expect(memory.profileStages.get('周砚清')).toBe('shot');
+  });
+});
