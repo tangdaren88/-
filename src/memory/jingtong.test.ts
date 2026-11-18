@@ -218,3 +218,67 @@ describe('拍摄阶段(已推荐/已拍摄/已撤出/已二次拍摄/已二次�
     expect(memory.profileStages.get('周砚清')).toBe('shot');
   });
 });
+
+/* ============ v1.6.12 镜瞳·系统推荐接入 ============ */
+
+const RECO = [
+  '【镜瞳 · 系统推荐】',
+  '',
+  '为你检索到3位对口候选：',
+  '',
+  '1. 朱利安·凡斯 · 32岁 · 外科医生 · 已婚 —— 理由：医院实权人物，与主角的病房线有交集。对{{user}}印象：无 ｜ 偏好：慕强重利。',
+  '',
+  '2. 苏晚 · 26岁 · 咖啡店店主 · 未婚 —— 理由：常驻主角楼下。对{{user}}印象：面熟 ｜ 偏好：安稳。',
+  '',
+  '3. 陆之远 · 41岁 · 中学教导主任 · 已婚 —— 理由：正在处理主角的违纪。对{{user}}印象：严肃 ｜ 偏好：秩序。',
+  '',
+  '（推荐只是建议，你可以完全无视，自己随便拍。）',
+].join('\n');
+
+describe('镜瞳·系统推荐(v1.6.12)', () => {
+  it('推荐条目抽名:译名内嵌「·」不误切(朱利安·凡斯);条目原文保留', () => {
+    const scan = scanJingtong([msg(RECO)]);
+    expect(scan.recommendations.map(r => r.name)).toEqual(['朱利安·凡斯', '苏晚', '陆之远']);
+    const first = scan.recommendations[0];
+    expect(first.entry).toContain('外科医生');
+    expect(first.entry).toContain('印象');
+    expect(first.floor).toBe(0);
+  });
+
+  it('只被推荐过 = 已推荐;候选自动进名册(关系「镜瞳推荐」,desc=条目原文)', () => {
+    vi.spyOn(context, 'getContext').mockReturnValue({ chat: [msg(RECO)], getCurrentChatId: () => 'reco-test' } as unknown as STContext);
+    Object.assign(memory, createEmptyMemory());
+    recomputeDerived();
+    expect(memory.profileStages.get('苏晚')).toBe('recommended');
+    expect(memory.profileStages.get('朱利安·凡斯')).toBe('recommended');
+    const card = memory.npcs.find(n => n.name === '苏晚');
+    expect(card?.relation).toBe('镜瞳推荐');
+    expect(card?.desc).toContain('咖啡店店主');
+  });
+
+  it('推荐后再拍到 = 已拍摄(推荐不挡阶段流转);同名不重复建卡', () => {
+    const shot = ['┌ 镜瞳·深度档案 ─────────', '姓名：苏晚', '职业：咖啡店店主', '└────────────────'].join('\n');
+    vi.spyOn(context, 'getContext').mockReturnValue({ chat: [msg(RECO), msg(shot)], getCurrentChatId: () => 'reco-shot' } as unknown as STContext);
+    Object.assign(memory, createEmptyMemory());
+    recomputeDerived();
+    expect(memory.profileStages.get('苏晚')).toBe('shot');
+    expect(memory.npcs.filter(n => n.name === '苏晚')).toHaveLength(1);
+  });
+
+  it('手动删过的推荐候选有墓碑,不复活', () => {
+    const m = msg(RECO);
+    m.extra = { bbs_leaf: { id: 'reco-tomb', delta: { npcs: { remove: ['苏晚'] } } } } as STMessage['extra'];
+    vi.spyOn(context, 'getContext').mockReturnValue({ chat: [m], getCurrentChatId: () => 'reco-tomb' } as unknown as STContext);
+    Object.assign(memory, createEmptyMemory());
+    recomputeDerived();
+    expect(memory.npcs.some(n => n.name === '苏晚')).toBe(false);
+  });
+
+  it('档案首行逗号分隔兜底:「姓名:周砚清,25岁,170cm」切出真名;「路之,字云帆」不误切', () => {
+    const comma = ['┌ 镜瞳·深度档案 ─────────', '姓名：周砚清，25岁，170cm', '└────────────────'].join('\n');
+    const ziName = ['┌ 镜瞳·深度档案 ─────────', '姓名：路之，字云帆', '└────────────────'].join('\n');
+    const scan = scanJingtong([msg(comma), msg(ziName)]);
+    expect(scan.profiles.some(p => p.name === '周砚清')).toBe(true);
+    expect(scan.profiles.some(p => p.name === '路之，字云帆')).toBe(true);
+  });
+});

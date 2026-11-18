@@ -5,7 +5,7 @@ import { deriveMemory, getLeaf, leafValid } from './apply';
 import { isAiFloor, pendingAiFloors } from './engine';
 import { normName, scanJingtong } from './jingtong';
 import { latestStoryTime } from './timeTag';
-import type { BaibaiMemory, LeafExtra, MemSummary, ProfileStage, StoredDelta, VarTemplate, VarTier } from './types';
+import type { BaibaiMemory, JingtongRecommendation, LeafExtra, MemSummary, ProfileStage, StoredDelta, VarTemplate, VarTier } from './types';
 import { createEmptyMemory, MEMORY_KEY, MEMORY_VERSION, normalizeTemplate } from './types';
 
 /**
@@ -89,6 +89,10 @@ export function recomputeDerived(): void {
   // 固定档案手动编辑层:叶子 delta.jingtong 的改名/改文/删除,按楼层顺序重放(后写覆盖先写);
   // 档案本体始终来自楼层原文,编辑只作覆盖 —— 删除是「撤出」:压掉不晚于删除楼层的档案,
   // 之后楼层再拍到同名 = 二次拍摄(档案回来,阶段标签同步流转)。
+  // 镜瞳推荐候选:接世界书【镜瞳 · 系统推荐】——被推荐过且没拍过 = 已推荐;
+  // 同名多轮推荐取最新条目(entry 原文进名册 desc),不再是无档案角色的兜底徽标。
+  const recoCandidates = new Map<string, JingtongRecommendation>();
+  for (const r of scan.recommendations) recoCandidates.set(normName(r.name), r);
   {
     const pEdits = new Map<string, { name?: string; text?: string }>();
     const removeFloors = new Map<string, number[]>();
@@ -106,12 +110,16 @@ export function recomputeDerived(): void {
       for (const u of jt.update ?? []) pEdits.set(normName(u.from), u);
     }
     // 拍摄阶段:按楼层归并「拍摄(档案块出现)」与「撤出(手动删除)」;
-    // 同楼先拍后撤(撤出赢),撤出后再拍算新一拍。从未上榜的名册角色默认已推荐(页面兜底)。
+    // 同楼先拍后撤(撤出赢),撤出后再拍算新一拍。只被推荐过、从未进入拍摄周期的 = 已推荐。
     const stages = new Map<string, ProfileStage>();
-    const names = new Set<string>([...scan.profileFloors.keys(), ...removeFloors.keys()]);
+    const names = new Set<string>([...scan.profileFloors.keys(), ...removeFloors.keys(), ...recoCandidates.keys()]);
     for (const k of names) {
       const sh = scan.profileFloors.get(k) ?? [];
       const rm = removeFloors.get(k) ?? [];
+      if (!sh.length && !rm.length) {
+        stages.set(k, 'recommended'); // 只出现在推荐名单,还没拍过
+        continue;
+      }
       let si = 0;
       let ri = 0;
       let profiled = false;
@@ -142,15 +150,15 @@ export function recomputeDerived(): void {
         return { ...p, name: e.name?.trim() || p.name, text: e.text ?? p.text };
       });
   }
+  // NPC 墓碑:曾被手动删除(叶子 delta.npcs.remove)的条目不复活(问卷关系卡与推荐候选卡共用)
+  const npcTombs = new Set<string>();
+  for (const m of chat ?? []) {
+    for (const nm of getLeaf(m)?.delta?.npcs?.remove ?? []) npcTombs.add(normName(nm));
+  }
   if (scan.questionnaireNpcs.length) {
-    // 墓碑:曾被手动删除(叶子 delta.npcs.remove)的问卷条目不复活
-    const tombs = new Set<string>();
-    for (const m of chat ?? []) {
-      for (const nm of getLeaf(m)?.delta?.npcs?.remove ?? []) tombs.add(normName(nm));
-    }
     for (const q of scan.questionnaireNpcs) {
       const key = normName(q.name);
-      if (tombs.has(key)) continue;
+      if (npcTombs.has(key)) continue;
       if (memory.npcs.some(n => normName(n.name) === key)) continue;
       memory.npcs.push({ id: `npc:${key}`, name: q.name, relation: q.relation, desc: q.desc, createdAt: Date.now(), updatedAt: Date.now() });
     }
@@ -169,6 +177,14 @@ export function recomputeDerived(): void {
       if (v && !memory.protagonist[key]) memory.protagonist[key] = v;
     }
   }
+  // 推荐候选进名册:关系标「镜瞳推荐」,desc 保留推荐条目原文(理由/印象/偏好);
+  // 手动删过的候选有墓碑不复活;与剧情名册/问卷条目同名不重复建卡
+  for (const [key, r] of recoCandidates) {
+    if (npcTombs.has(key)) continue;
+    if (memory.npcs.some(n => normName(n.name) === key)) continue;
+    memory.npcs.push({ id: `npc:${key}`, name: r.name, relation: '镜瞳推荐', desc: r.entry, createdAt: Date.now(), updatedAt: Date.now() });
+  }
+
   // 问卷「备注」段:人物小传/世界设定备忘,存派生缓存供注入(防 OOC);与 NPC 条目独立(有的问卷只有备注没有人名)
   // 手动覆盖层与总览同款:取楼层顺序上最后一次非 null 覆盖;null=清除覆盖还原楼层原文。
   // (问卷备注常捕捉不到,允许玩家直接在镜瞳页补写)

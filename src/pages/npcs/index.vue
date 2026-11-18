@@ -29,20 +29,23 @@ const STAGE_LABEL: Record<ProfileStage, string> = {
   rewithdrawn: '已二次撤出',
 };
 const STAGE_TITLE: Record<ProfileStage, string> = {
-  recommended: '名册有记录,还没被镜瞳拍过深度档案',
+  recommended: '镜瞳推荐过,还没拍深度档案',
   shot: '已有镜瞳深度档案',
   reshot: '撤出后再次被拍,深度档案已恢复',
   withdrawn: '深度档案已删除(撤出);再拍到会变「已二次拍摄」',
   rewithdrawn: '二次拍摄后再次撤出',
 };
-function profileStage(n: MemNpc): ProfileStage {
-  return memory.profileStages.get(normName(n.name)) ?? 'recommended';
+/* 没上过镜瞳记录(既没被推荐、也没拍过/撤出)的普通角色不显示徽标 —— 「已推荐」是推荐名单专用,不再兜底 */
+function profileStage(n: MemNpc): ProfileStage | null {
+  return memory.profileStages.get(normName(n.name)) ?? null;
 }
 function stageLabel(n: MemNpc): string {
-  return STAGE_LABEL[profileStage(n)];
+  const s = profileStage(n);
+  return s ? STAGE_LABEL[s] : '';
 }
 function stageTitle(n: MemNpc): string {
-  return STAGE_TITLE[profileStage(n)];
+  const s = profileStage(n);
+  return s ? STAGE_TITLE[s] : '';
 }
 const protagonistName = computed(() => {
   void derivedMeta.rev;
@@ -565,7 +568,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
-                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
+                <span v-if="profileStage(n)" class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -606,7 +609,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
-                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
+                <span v-if="profileStage(n)" class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -665,7 +668,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
-                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
+                <span v-if="profileStage(n)" class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">
@@ -716,7 +719,7 @@ function deleteKnow(k: MemKnowledge) {
             <div class="bbs-npc-body">
               <div class="bbs-npc-head">
                 <span class="bbs-npc-name" :title="n.name">{{ n.name }}</span>
-                <span class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
+                <span v-if="profileStage(n)" class="bbs-npc-stage" :class="`is-${profileStage(n)}`" :title="stageTitle(n)">{{ stageLabel(n) }}</span>
                 <span v-if="n.gender" class="bbs-npc-gender">{{ n.gender }}</span>
                 <span v-if="shownAge(n.age, n.ageTime)" class="bbs-npc-gender" :title="ageTitle(n.age, n.ageTime)">{{ shownAge(n.age, n.ageTime) }}</span>
                 <span class="bbs-npc-acts">

@@ -13,7 +13,7 @@
  */
 
 import type { STMessage } from '@/st/context';
-import type { JingtongFaction, JingtongProfile, QuestionnaireNpc } from './types';
+import type { JingtongFaction, JingtongProfile, JingtongRecommendation, QuestionnaireNpc } from './types';
 
 /** 与 apply.ts 的 norm 同口径(名字匹配键:剥不可见字符 + 去首尾空白 + 小写) */
 export function normName(s: string): string {
@@ -49,6 +49,8 @@ export interface JingtongScan {
   notes: string;
   /** 世界观总览「权力与势力」段捕捉的势力种子(取最后一次总览;手动可增删改,墓碑防复活) */
   factions: JingtongFaction[];
+  /** 镜瞳系统推荐候选(全部推荐块的条目行;同名多轮推荐在 store 侧按名字去重取最新) */
+  recommendations: JingtongRecommendation[];
 }
 
 function floorText(m: STMessage | undefined): string {
@@ -333,6 +335,12 @@ function extractProfiles(text: string, floor: number, out: Map<string, JingtongP
     const head = lines.find(l => /^(姓名|名字)/.test(l));
     const hm = head?.match(/^(?:姓名|名字)[^：:]*[：:]\s*(.+)$/);
     if (hm) name = hm[1].split(/[｜|]/)[0].trim();
+    if (name) {
+      // AI 手滑兜底:首行写成逗号分隔(「姓名:周砚清,25岁,170cm」)时整串会被当名字建档,
+      // 名册永远匹配不上 → 在「逗号后紧跟数字」处切掉尾巴;「路之,字云帆」这类含逗号的名字不误切
+      const cm = name.match(/^([^，,]*?)[，,]\s*\d/);
+      if (cm?.[1]?.trim()) name = cm[1].trim();
+    }
     if (!name) continue;
     const kept = lines.map(l => (/^(姓名|名字)/.test(l) ? expandHeadLine(l) : l)).filter(l => !PROFILE_LINE_SKIP.test(l));
     const key = normName(name);
@@ -430,6 +438,44 @@ function parseNotesSection(text: string): string {
   return parts.join('\n').trim();
 }
 
+/* ============ ④ 镜瞳·系统推荐 ============ */
+
+const RECO_HEADER = /【\s*镜瞳\s*[·・]\s*系统推荐\s*】/;
+
+/**
+ * 从推荐条目行抽候选名。条目模板:「姓名 · 年龄 · 职业 · 婚姻状况 —— 理由…」,
+ * 译名内嵌的「·」(朱利安·凡斯)不是字段分隔符 —— 名字后第一个「· + 数字/中文数字 岁」
+ * 才是姓名段的切割点;中文数字年龄(「三十二岁」)一并兜住。
+ */
+function extractRecommendationName(entry: string): string {
+  const m = entry.match(/^(.*?)\s*[·・]\s*(?:\d{1,3}|[一二两三四五六七八九十]{1,3})\s*岁/);
+  if (m?.[1]?.trim()) return m[1].trim();
+  // 兜底:无「X岁」标记时按「——」前的速览段拆「·」,含「岁」段之前的第一段为名
+  const head = entry.split(/——/)[0].trim();
+  if (!/[·・]/.test(head)) return '';
+  const segs = head.split(/\s*[·・]\s*/).filter(Boolean);
+  if (segs.length < 2) return '';
+  const ageIdx = segs.findIndex(s => /\S岁/.test(s));
+  return (ageIdx > 0 ? segs.slice(0, ageIdx).join('·') : segs[0]).trim();
+}
+
+/** 从单楼正文提取「【镜瞳 · 系统推荐】」块的条目行(1. … 2. …),抽候选名与条目原文写入 out */
+function extractRecommendations(text: string, floor: number, out: JingtongRecommendation[]): void {
+  const start = text.search(RECO_HEADER);
+  if (start < 0) return;
+  const lines = text.slice(start).split(/\r?\n/);
+  for (const raw of lines.slice(1)) {
+    const t = raw.trim();
+    if (/^【/.test(t)) break; // 下一个块头:推荐段结束
+    const m = t.match(/^\d{1,2}[.、．]\s*(.+)$/);
+    if (!m) continue;
+    const entry = m[1].trim();
+    const name = extractRecommendationName(entry);
+    if (!name) continue;
+    out.push({ name, entry, floor });
+  }
+}
+
 /* ============ 总扫描 ============ */
 
 /** 扫全 chat:世界观总览(最后一次)、深度档案(同名取最新)、问卷(最后一次) */
@@ -440,6 +486,7 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
   let questionnaireNpcs: QuestionnaireNpc[] = [];
   let factions: JingtongFaction[] = [];
   let notes = '';
+  const recommendations: JingtongRecommendation[] = [];
   const qp: NonNullable<JingtongScan['questionnaireProtagonist']> = {};
   if (chat) {
     for (let i = 0; i < chat.length; i++) {
@@ -456,6 +503,7 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
         factions = extractFactions(ov); // 势力种子跟随最后一次总览(与 worldOverview 同源)
       }
       extractProfiles(text, i, profiles, profileFloors);
+      extractRecommendations(text, i, recommendations);
       if (QS_HEADER.test(text)) {
         const f = parseQuestionnaireFields(text);
         const npcs = buildQuestionnaireNpcs(f);
@@ -490,5 +538,5 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
       }
     }
   }
-  return { worldOverview, profiles: [...profiles.values()], profileFloors, questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
+  return { worldOverview, profiles: [...profiles.values()], profileFloors, questionnaireNpcs, questionnaireProtagonist: qp, notes, factions, recommendations };
 }

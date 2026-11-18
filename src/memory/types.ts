@@ -467,8 +467,19 @@ export interface JingtongProfile {
 }
 
 /**
+ * 镜瞳系统推荐候选(派生缓存):从楼层正文的「【镜瞳 · 系统推荐】」块扫出。
+ * 推荐是世界此刻的快照,这里只做「被推荐过」的痕迹:name=候选名,entry=条目行原文
+ * (理由/印象/偏好保真不改写),floor=出现楼层。
+ */
+export interface JingtongRecommendation {
+  name: string;
+  entry: string;
+  floor: number;
+}
+
+/**
  * 角色在「镜瞳拍摄」周期里的当前阶段(派生缓存,key=normName):
- *  - recommended:名册有记录但还没被拍过(镜瞳推荐);
+ *  - recommended:被【镜瞳 · 系统推荐】推荐过但还没拍过深度档案(仅推荐名单内有此阶段);
  *  - shot / reshot:当前有深度档案(撤出后再次拍到 = reshot);
  *  - withdrawn / rewithdrawn:档案被手动删除(撤出),二次撤出 = 再拍又删。
  */
