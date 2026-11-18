@@ -474,6 +474,16 @@ export interface JingtongProfile {
  */
 export type ProfileStage = 'recommended' | 'shot' | 'reshot' | 'withdrawn' | 'rewithdrawn';
 
+/** 【镜瞳·系统推荐】的一条候选(扫描自楼层正文,同名取最新楼层) */
+export interface JingtongRecommend {
+  /** 候选名(条目行序号后、年龄段之前的部分;译名中的「·」不算分界) */
+  name: string;
+  /** 条目原文(年龄/职业/婚否 + 理由 + 印象/偏好),作名册 desc,供 AI 知道谁被推荐过 */
+  text: string;
+  /** 来源楼层索引 */
+  floor: number;
+}
+
 /**
  * 问卷回执解析出的关系网 NPC(派生缓存):玩家在【问卷回执】里自填的
  * 父母/兄弟姐妹/寄宿家庭/恋人等,不必等正文出场就进名册(desc=玩家原文)。
@@ -985,5 +995,7 @@ export interface StoredDelta {
     update?: { from: string; name?: string; text?: string }[];
     /** 按名字移除(墓碑:此后楼层再拍到同名档案也不恢复) */
     remove?: string[];
+    /** 手动设定角色拍摄阶段标签(AI 派生层之上,后写覆盖先写;'none'=隐藏标签,只动标签不动档案) */
+    stage?: { name: string; stage: ProfileStage | 'none' }[];
   };
 }

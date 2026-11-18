@@ -12,7 +12,7 @@ import { scheduleVectorIndex } from './vector';
 import { invalidateRecallCache } from './vector/cache';
 import { applyConditionPatch, hasConditionPatchContent, stripConditionFragmentIds } from './conditionPatch';
 import { createEmptyMemory } from './types';
-import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, FactionDelta, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemFaction, MemLifeDetail, MemNpc, MemPlan, MemQuest, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProtagonistDelta, QuestDelta, QuestStatus, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
+import type { BaibaiMemory, ConditionPatch, ConditionPatchOp, FactionDelta, ItemDelta, ItemLogEntry, JsonValue, LeafExtra, LifeDetailAdd, LifeDetailUpdate, MemFaction, MemLifeDetail, MemNpc, MemPlan, MemQuest, MemScene, MemSummary, NpcAffinity, NpcDelta, NpcPresence, PlanResolveItem, PlanUpdateItem, ProfileStage, ProtagonistDelta, QuestDelta, QuestStatus, SceneDelta, SceneFocus, SceneOp, SceneReparent, StoredDelta, SummaryDelta, VarOp, VarTemplate, VarTier } from './types';
 
 // 供既有调用方继续从 apply 取在场类型;定义在 types.ts 与名册展示共用。
 export type { NpcPresence } from './types';
@@ -2267,16 +2267,24 @@ export function appendOpToLatestLeaf(op: StoredDelta): boolean {
     changed = true;
   }
   if (op.jingtong) {
-    // 镜瞳手动编辑层:总览/问卷备注覆盖 + 档案改名/改文/删除(与 npcs 同款跨桶互斥)
+    // 镜瞳手动编辑层:总览/问卷备注覆盖 + 档案改名/改文/删除 + 阶段标签(与 npcs 同款跨桶互斥)
     if (
       op.jingtong.overview !== undefined ||
       op.jingtong.notes !== undefined ||
       op.jingtong.update?.length ||
-      op.jingtong.remove?.length
+      op.jingtong.remove?.length ||
+      op.jingtong.stage?.length
     ) changed = true;
     const dj = (d.jingtong ??= {});
     if (op.jingtong.overview !== undefined) dj.overview = op.jingtong.overview;
     if (op.jingtong.notes !== undefined) dj.notes = op.jingtong.notes;
+    for (const s of op.jingtong.stage ?? []) {
+      const k = norm(s.name);
+      if (!k) continue;
+      const prev = dj.stage?.find(x => norm(x.name) === k);
+      if (prev) prev.stage = s.stage;
+      else (dj.stage ??= []).push({ name: s.name, stage: s.stage });
+    }
     for (const name of op.jingtong.remove ?? []) {
       const k = norm(name);
       if (dj.update) dj.update = dj.update.filter(u => norm(u.from) !== k);
@@ -2556,6 +2564,17 @@ export function editDeepProfile(from: string, patch: { name?: string; text?: str
 export function removeDeepProfile(name: string): boolean {
   const nm = name.trim();
   return nm ? appendOpToLatestLeaf({ jingtong: { remove: [nm] } }) : false;
+}
+
+/**
+ * 手动设定一个角色的拍摄阶段标签(自用二改):五个阶段或 'none'(隐藏标签)。
+ * 记进最新叶子,重放时套在自动派生的阶段之上(后写覆盖先写,手动层永远压过 AI 扫描)——
+ * AI 再怎么重扫、再怎么打印档案块都不会冲掉;只动标签,不动深度档案本体。
+ */
+export function setNpcStage(name: string, stage: ProfileStage | 'none'): boolean {
+  const nm = name.trim();
+  if (!nm) return false;
+  return appendOpToLatestLeaf({ jingtong: { stage: [{ name: nm, stage }] } });
 }
 
 /* ============ 势力手动 op(自用二改,与 NPC 同范式) ============ */

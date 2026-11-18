@@ -13,7 +13,7 @@
  */
 
 import type { STMessage } from '@/st/context';
-import type { JingtongFaction, JingtongProfile, QuestionnaireNpc } from './types';
+import type { JingtongFaction, JingtongProfile, JingtongRecommend, QuestionnaireNpc } from './types';
 
 /** 与 apply.ts 的 norm 同口径(名字匹配键:剥不可见字符 + 去首尾空白 + 小写) */
 export function normName(s: string): string {
@@ -27,6 +27,10 @@ export interface JingtongScan {
   profiles: JingtongProfile[];
   /** 每个名字出现档案块的楼层号列表(升序;「已拍摄/已撤出/已二次…」阶段跟踪用) */
   profileFloors: Map<string, number[]>;
+  /** 【镜瞳·系统推荐】候选(同名取最新楼层;供名册种子与「已推荐」阶段) */
+  recommends: JingtongRecommend[];
+  /** 每个候选名出现推荐条目的楼层号列表(升序;阶段跟踪用) */
+  recoFloors: Map<string, number[]>;
   /** 问卷回执解析出的关系网 NPC(最后一次问卷为准;name=抽出的人名) */
   questionnaireNpcs: QuestionnaireNpc[];
   /** 问卷回执里的主角信息(客观字段仅兜底填空;goals/secrets 供计划/悬念种子) */
@@ -432,10 +436,65 @@ function parseNotesSection(text: string): string {
 
 /* ============ 总扫描 ============ */
 
-/** 扫全 chat:世界观总览(最后一次)、深度档案(同名取最新)、问卷(最后一次) */
+/** 【镜瞳·系统推荐】块头(· 两侧空格可有可无) */
+const RECO_HEADER = /【\s*镜瞳\s*·\s*系统推荐\s*】/;
+/** 推荐条目行:「1. …」「2、…」 */
+const RECO_ENTRY = /^\s*(\d{1,3})\s*[.、)）]\s*(.+)$/;
+/**
+ * 条目字段分界:分隔符(·/逗号)后紧跟年龄(阿拉伯数字可带「岁」,或中文数字必须带「岁」)。
+ * 译名里的「·」(朱利安·凡斯)、「字云帆」前的逗号都不满足,不会把名字切坏。
+ */
+const RECO_AGE_SEP = /(?:·|，|,)\s*(?:\d{1,3}(?:\.\d+)?\s*岁?|[一二两三四五六七八九十百零]{1,4}\s*岁)/;
+
+/** 推荐条目行抽姓名+原文:姓名 = 序号后到第一个「年龄段分界」;无分界退而求其次按「——」/间隔「 · 」切 */
+function recoEntry(body: string): { name: string; text: string } | null {
+  const m = body.match(RECO_AGE_SEP);
+  let name = body;
+  if (m && m.index !== undefined) name = body.slice(0, m.index);
+  else {
+    const i = body.search(/\s*——|\s[—–]\s|\s·\s/);
+    if (i >= 0) name = body.slice(0, i);
+  }
+  name = name.replace(/[\s:：，,、。.·]+$/, '').trim();
+  return name ? { name, text: body.trim() } : null;
+}
+
+/**
+ * 从单楼正文提取【镜瞳·系统推荐】条目(同名后到覆盖先到)。
+ * 块内只收「N. …」条目行;遇到提示行(「（推荐只是建议…」)、下一个块头(【/┌)就出块。
+ */
+function extractRecommends(text: string, floor: number, out: Map<string, JingtongRecommend>, floors: Map<string, number[]>): void {
+  let inBlock = false;
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!inBlock) {
+      if (RECO_HEADER.test(t)) inBlock = true;
+      continue;
+    }
+    if (!t) continue;
+    const em = t.match(RECO_ENTRY);
+    if (em) {
+      const e = recoEntry(em[2]);
+      if (!e) continue;
+      const key = normName(e.name);
+      if (!key) continue;
+      out.set(key, { name: e.name, text: e.text, floor });
+      const arr = floors.get(key) ?? [];
+      arr.push(floor);
+      floors.set(key, arr);
+      continue;
+    }
+    // 出块:推荐提示行、下一个块头、档案围栏
+    if (/^[（(【┌]/.test(t)) inBlock = false;
+  }
+}
+
+/** 扫全 chat:世界观总览(最后一次)、深度档案(同名取最新)、推荐候选(同名取最新)、问卷(最后一次) */
 export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan {
   const profiles = new Map<string, JingtongProfile>();
   const profileFloors = new Map<string, number[]>();
+  const recos = new Map<string, JingtongRecommend>();
+  const recoFloors = new Map<string, number[]>();
   let worldOverview = '';
   let questionnaireNpcs: QuestionnaireNpc[] = [];
   let factions: JingtongFaction[] = [];
@@ -456,6 +515,7 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
         factions = extractFactions(ov); // 势力种子跟随最后一次总览(与 worldOverview 同源)
       }
       extractProfiles(text, i, profiles, profileFloors);
+      extractRecommends(text, i, recos, recoFloors);
       if (QS_HEADER.test(text)) {
         const f = parseQuestionnaireFields(text);
         const npcs = buildQuestionnaireNpcs(f);
@@ -490,5 +550,5 @@ export function scanJingtong(chat: STMessage[] | null | undefined): JingtongScan
       }
     }
   }
-  return { worldOverview, profiles: [...profiles.values()], profileFloors, questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
+  return { worldOverview, profiles: [...profiles.values()], profileFloors, recommends: [...recos.values()], recoFloors, questionnaireNpcs, questionnaireProtagonist: qp, notes, factions };
 }

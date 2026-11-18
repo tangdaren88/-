@@ -218,3 +218,72 @@ describe('拍摄阶段(已推荐/已拍摄/已撤出/已二次拍摄/已二次�
     expect(memory.profileStages.get('周砚清')).toBe('shot');
   });
 });
+
+const RECO = [
+  '【镜瞳 · 系统推荐】',
+  '为你检索到3位对口候选：',
+  '1. 林晚晴 · 26岁 · 美术馆策展人 · 未婚 —— 理由：美术馆新展与主角的画室有合作项目。对{{user}}印象：无 ｜ 偏好：艺术共鸣优先。',
+  '2. 朱利安·凡斯 · 25岁 · 律师 · 未婚 —— 理由：手头的遗产案与主角家族企业有关。对{{user}}印象：无 ｜ 偏好：社会硬条件。',
+  '3. 路之，字云帆 · 三十岁 · 书院先生 · 已婚 —— 理由：书院讲席与主角的学业线相交。对{{user}}印象：无 ｜ 偏好：剧情牵引。',
+  '（推荐只是建议，你可以完全无视，自己随便拍。）',
+].join('\n');
+
+describe('镜瞳系统推荐(候选进名册 + 已推荐阶段)', () => {
+  function calc(chat: STMessage[]): void {
+    vi.spyOn(context, 'getContext').mockReturnValue({ chat, getCurrentChatId: () => 'reco-test' } as unknown as STContext);
+    Object.assign(memory, createEmptyMemory());
+    recomputeDerived();
+  }
+  function leaf(mes: string, delta: Record<string, unknown>): STMessage {
+    const m = msg(mes);
+    m.extra = { bbs_leaf: { id: `reco-${Math.random().toString(36).slice(2)}`, delta } } as STMessage['extra'];
+    return m;
+  }
+
+  it('条目解析:译名「·」与含逗号名不被切坏,候选进名册标「镜瞳推荐」且阶段=已推荐', () => {
+    calc([msg(RECO)]);
+    expect(scanJingtong([msg(RECO)]).recommends.map(r => r.name)).toEqual(['林晚晴', '朱利安·凡斯', '路之，字云帆']);
+    const names = memory.npcs.map(n => n.name);
+    expect(names).toContain('林晚晴');
+    expect(names).toContain('朱利安·凡斯');
+    expect(names).toContain('路之，字云帆');
+    expect(memory.npcs.find(n => n.name === '朱利安·凡斯')?.relation).toBe('镜瞳推荐');
+    expect(memory.npcs.find(n => n.name === '朱利安·凡斯')?.desc).toContain('遗产案');
+    expect(memory.profileStages.get('朱利安·凡斯')).toBe('recommended');
+  });
+
+  it('普通剧情角色(摘要捕捉,无镜瞳记录)没有阶段,不再人人顶着「已推荐」', () => {
+    const m = leaf('剧情。', { npcs: { add: [{ name: '路人甲', relation: '店员' }] } });
+    calc([m, msg(RECO)]);
+    expect(memory.npcs.some(n => n.name === '路人甲')).toBe(true);
+    expect(memory.profileStages.get('路人甲')).toBeUndefined();
+  });
+
+  it('推荐过的人后来被拍:阶段流转成已拍摄;同名不重复建卡', () => {
+    const profileLin = [
+      '┌ 镜瞳·深度档案 ─────────',
+      '姓名：林晚晴',
+      '职业：美术馆策展人',
+      '└────────────────',
+    ].join('\n');
+    calc([msg(RECO), msg(profileLin)]);
+    expect(memory.profileStages.get('林晚晴')).toBe('shot');
+    expect(memory.npcs.filter(n => n.name === '林晚晴')).toHaveLength(1);
+  });
+
+  it('手动删掉的候选不复活(delta.npcs.remove 墓碑)', () => {
+    const m = leaf('删除。', { npcs: { remove: ['朱利安·凡斯'] } });
+    calc([msg(RECO), m]);
+    expect(memory.npcs.some(n => n.name === '朱利安·凡斯')).toBe(false);
+  });
+
+  it('手动阶段标签:压过自动派生,none 隐藏,后写覆盖先写', () => {
+    const hide = leaf('手动隐藏。', { jingtong: { stage: [{ name: '林晚晴', stage: 'none' }] } });
+    const manual = leaf('手动标拍。', { jingtong: { stage: [{ name: '林晚晴', stage: 'shot' }, { name: '路人乙', stage: 'withdrawn' }] } });
+    calc([msg(RECO), hide]);
+    expect(memory.profileStages.get('林晚晴')).toBeUndefined();
+    calc([msg(RECO), hide, manual]);
+    expect(memory.profileStages.get('林晚晴')).toBe('shot'); // 后写覆盖先写
+    expect(memory.profileStages.get('路人乙')).toBe('withdrawn'); // 无镜瞳记录也能手动贴标
+  });
+});
